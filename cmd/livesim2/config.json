@@ -1,0 +1,9 @@
+{
+    "port": 9999,
+    "livewindowS": 305,
+    "timeoutS": 0,
+    "writerepdata": true,
+    "concatassets": true,
+    "vodroot": "C:/Users/LuizMonad/Desktop/web/mediaserver-playlistgenerator/radio_test/rtst/dash",
+    "repdataroot": "repdata"
+}

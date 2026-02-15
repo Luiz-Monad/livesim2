@@ -14,3 +14,11 @@ coverage.*
 
 # Dependency directories (remove the comment below to include it)
 vendor/
+
+# Temp
+e2e-test/data/
+e2e-test/repdata/*
+e2e-test/__pycache__/*
+out/
+
+
