@@ -60,6 +60,10 @@ func (p *MP4ChunkParser) Parse() error {
 		switch currBox {
 		case "moov":
 			cd.IsInitSegment = true
+		case "moof":
+			if cd.IsInitComplete {
+				cd.IsInitSegment = false
+			}
 		case "mdat":
 			mdatEnd = nextBoxStart
 		}
@@ -68,6 +72,7 @@ func (p *MP4ChunkParser) Parse() error {
 			return err
 		}
 		if mdatEnd == uint32(p.contentEnd) {
+			cd.IsInitComplete = true
 			// mdat is complete
 			cd.Data = p.buf[:mdatEnd]
 			err := p.callBack(cd)
@@ -129,7 +134,8 @@ func (p *MP4ChunkParser) readUntil(contentEnd int) error {
 // ChunkData provides a raw fmp4 chunk or a full segment.
 // Start provides an offset in bytes in the segment.
 type ChunkData struct {
-	Start         uint32
-	IsInitSegment bool
-	Data          []byte
+	Start          uint32
+	IsInitSegment  bool
+	IsInitComplete bool
+	Data           []byte
 }
