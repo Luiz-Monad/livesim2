@@ -94,7 +94,7 @@ func (cm *cmafIngesterMgr) NewCmafIngester(req CmafIngesterSetup) (nr uint64, er
 		}
 	}
 
-	log := slog.Default().With(slog.Uint64("ingester", nr))
+	log := slog.Default().WithGroup("ingester").With(slog.Uint64("nr", nr))
 
 	mpdReq := httptest.NewRequest("GET", req.URL, nil)
 	if req.TestNowMS != nil {

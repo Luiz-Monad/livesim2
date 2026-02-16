@@ -43,6 +43,7 @@ type channel struct {
 	repsCfg               map[string]RepresentationConfig
 	ignore                bool // Ignore (drop) channel. Don't process any content, just return 200 OK
 	done                  chan struct{}
+	log                   *slog.Logger
 }
 
 type trData struct {
@@ -81,6 +82,7 @@ func newChannel(ctx context.Context, chCfg ChannelConfig, chDir string) *channel
 	p.Id = "P0"
 	p.Start = m.Seconds2DurPtr(0)
 	mpd.AppendPeriod(p)
+	log := slog.Default().WithGroup("channel").With("chName", chCfg.Name)
 	ch := channel{
 		name:                  chCfg.Name,
 		authUser:              chCfg.AuthUser,
@@ -97,6 +99,7 @@ func newChannel(ctx context.Context, chCfg ChannelConfig, chDir string) *channel
 		repsCfg:               make(map[string]RepresentationConfig),
 		ignore:                chCfg.Ignore,
 		done:                  make(chan struct{}),
+		log:                   log,
 	}
 	for _, repCfg := range chCfg.Reps {
 		ch.repsCfg[repCfg.Name] = repCfg
@@ -110,7 +113,7 @@ func (ch *channel) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("Channel done", "chName", ch.name)
+			ch.log.Info("Channel done")
 			return
 		case rsd := <-ch.recSegCh:
 			ch.receivedSegData(rsd)
@@ -139,7 +142,7 @@ func (ch *channel) addInitDataAndUpdateTimescale(stream stream, init *mp4.InitSe
 		contentType: stream.mediaType,
 		init:        init,
 	}
-	log := slog.Default().With("chName", stream.chName, "trName", stream.trName)
+	log := ch.log.WithGroup("track").With("trName", stream.trName)
 	moov := init.Moov
 	if len(moov.Traks) != 1 {
 		return fmt.Errorf("expected one track, got %d", len(moov.Traks))
@@ -292,12 +295,13 @@ func (ch *channel) addInitDataAndUpdateTimescale(stream stream, init *mp4.InitSe
 }
 
 func (ch *channel) addChunkData(rsd recSegData) {
-	slog.Debug("addChunkData", "chName", ch.name, "trName", rsd.name, "seqNr", rsd.seqNr, "chunkNr", rsd.chunkNr, "dur", rsd.dur)
+	log := ch.log.WithGroup("track").With("trName", rsd.name)
+	log.Debug("addChunkData", "seqNr", rsd.seqNr, "chunkNr", rsd.chunkNr, "dur", rsd.dur)
 	ch.recSegCh <- rsd
 }
 
 func (ch *channel) receivedSegData(rsd recSegData) {
-	log := slog.Default().With("chName", ch.name, "trName", rsd.name, "seqNr", rsd.seqNr)
+	log := ch.log.WithGroup("track").With("trName", rsd.name, "seqNr", rsd.seqNr)
 	ch.mu.RLock()
 	_, ok := ch.trDatas[rsd.name]
 	ch.mu.RUnlock()
