@@ -53,3 +53,5 @@ require (
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/Eyevinn/mp4ff v0.50.0 => github.com/Luiz-Monad/mp4ff v0.50.0-patch
