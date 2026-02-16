@@ -120,3 +120,89 @@ func TestGetLang(t *testing.T) {
 		assert.Equal(t, c.expected, gotLang)
 	}
 }
+
+func TestAddInitTwice(t *testing.T) {
+	videoData, err := os.ReadFile("testdata/video/init.cmfv")
+	assert.NoError(t, err)
+	chName, chDir := "testpic", "testdir/testpic"
+	ctx := context.TODO()
+	chCfg := ChannelConfig{
+		Name:                  chName,
+		TimeShiftBufferDepthS: 60,
+	}
+	ch := newChannel(ctx, chCfg, chDir)
+	strm := stream{
+		chName:    chName,
+		chDir:     chDir,
+		trName:    "video",
+		ext:       "cmfv",
+		mediaType: "video",
+	}
+	sr := bits.NewFixedSliceReader(videoData)
+	decFile, err := mp4.DecodeFileSR(sr)
+	assert.NoError(t, err)
+	init := decFile.Init
+
+	err = ch.addInitDataAndUpdateTimescale(strm, init)
+	assert.NoError(t, err)
+
+	p := ch.mpd.Periods[0]
+	assert.Equal(t, 1, len(p.AdaptationSets))
+	asSet := p.AdaptationSets[0]
+	assert.Equal(t, 1, len(asSet.Representations))
+
+	err = ch.addInitDataAndUpdateTimescale(strm, init)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(p.AdaptationSets))
+	asSet = p.AdaptationSets[0]
+	assert.Equal(t, 1, len(asSet.Representations), "sending init segment twice should not create duplicate Representations")
+}
+
+func TestAddTwoAudioTracks(t *testing.T) {
+	audioData, err := os.ReadFile("testdata/awsMediaLiveScte35/audio/init.cmfa")
+	assert.NoError(t, err)
+	chName, chDir := "testaudio", "testdir/testaudio"
+	ctx := context.TODO()
+	chCfg := ChannelConfig{
+		Name:                  chName,
+		TimeShiftBufferDepthS: 60,
+	}
+	ch := newChannel(ctx, chCfg, chDir)
+
+	sr := bits.NewFixedSliceReader(audioData)
+	decFile, err := mp4.DecodeFileSR(sr)
+	assert.NoError(t, err)
+	init := decFile.Init
+
+	strm1 := stream{
+		chName:    chName,
+		chDir:     chDir,
+		trName:    "audio1",
+		ext:       "cmfa",
+		mediaType: "audio",
+	}
+	err = ch.addInitDataAndUpdateTimescale(strm1, init)
+	assert.NoError(t, err)
+
+	strm2 := stream{
+		chName:    chName,
+		chDir:     chDir,
+		trName:    "audio2",
+		ext:       "cmfa",
+		mediaType: "audio",
+	}
+	err = ch.addInitDataAndUpdateTimescale(strm2, init)
+	assert.NoError(t, err)
+
+	p := ch.mpd.Periods[0]
+	assert.Equal(t, 2, len(p.AdaptationSets), "two audio tracks each one will be on their own AdaptationSet")
+	asSet0 := p.AdaptationSets[0]
+	assert.Equal(t, 1, len(asSet0.Representations), "audio tracks should have only one Representation")
+	asSet1 := p.AdaptationSets[1]
+	assert.Equal(t, 1, len(asSet1.Representations), "audio tracks should have only one Representation")
+	assert.NotNil(t, asSet0.SegmentTemplate)
+	assert.NotNil(t, asSet0.SegmentTemplate.Timescale, "Timescale should not be nil for track")
+	assert.NotNil(t, asSet1.SegmentTemplate)
+	assert.NotNil(t, asSet1.SegmentTemplate.Timescale, "Timescale should not be nil for track")
+}

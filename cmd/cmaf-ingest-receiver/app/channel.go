@@ -205,6 +205,9 @@ func (ch *channel) addInitDataAndUpdateTimescale(stream stream, init *mp4.InitSe
 		if len(asSet.Roles) > 0 {
 			asRole = asSet.Roles[0].Value
 		}
+		if len(asSet.Representations) == 0 {
+			continue
+		}
 		firstRep := asSet.Representations[0]
 		if string(asSet.ContentType) == stream.mediaType && strings.HasPrefix(firstRep.Codecs, sampleEntry) &&
 			lang == asSet.Lang && role == asRole {
@@ -241,15 +244,31 @@ func (ch *channel) addInitDataAndUpdateTimescale(stream stream, init *mp4.InitSe
 			}
 		}
 	}
-	rep := m.NewRepresentation()
-	rep.Id = stream.trName
-	currAsSet.AppendRepresentation(rep)
+
+	var rep *m.RepresentationType
+	for _, r := range currAsSet.Representations {
+		if r.Id == stream.trName {
+			rep = r
+			break
+		}
+	}
+	if rep == nil {
+		rep = m.NewRepresentation()
+		rep.Id = stream.trName
+		currAsSet.AppendRepresentation(rep)
+	}
+	currSt := currAsSet.SegmentTemplate
 	ext := extFromMediaType[stream.mediaType]
-	if currAsSet.SegmentTemplate == nil {
-		currAsSet.SegmentTemplate = m.NewSegmentTemplate()
-		currAsSet.SegmentTemplate.Timescale = m.Ptr(uint32(trak.Mdia.Mdhd.Timescale))
-		currAsSet.SegmentTemplate.Media = fmt.Sprintf("$RepresentationID$/$Number$%s", ext)
-		currAsSet.SegmentTemplate.Initialization = fmt.Sprintf("$RepresentationID$/init%s", ext)
+	if currSt == nil {
+		currSt = m.NewSegmentTemplate()
+		rep.SegmentTemplate = currSt
+	}
+	if currSt.Timescale == nil {
+		currSt.Timescale = m.Ptr(uint32(trak.Mdia.Mdhd.Timescale))
+	}
+	if currSt.Media == "" {
+		currSt.Media = fmt.Sprintf("$RepresentationID$/$Number$%s", ext)
+		currSt.Initialization = fmt.Sprintf("$RepresentationID$/init%s", ext)
 	}
 	if uint32(trak.Mdia.Mdhd.Timescale) != *currAsSet.SegmentTemplate.Timescale {
 		return fmt.Errorf("timescale mismatch between track and adaptation set")
