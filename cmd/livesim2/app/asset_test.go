@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	m "github.com/Eyevinn/dash-mpd/mpd"
@@ -335,20 +334,23 @@ func copyDir(srcDir, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return err
 	}
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		var relPath = strings.Replace(path, srcDir, "", 1)
-		if relPath == "" {
+	return filepath.Walk(srcDir, func(walkPath string, info os.FileInfo, err error) error {
+		relPath, err := filepath.Rel(srcDir, walkPath)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
 			return nil
 		}
+		dstPath := filepath.Join(dstDir, relPath)
 		if info.IsDir() {
-			return os.Mkdir(filepath.Join(dstDir, relPath), 0755)
-		} else {
-			var data, err = os.ReadFile(filepath.Join(srcDir, relPath))
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dstDir, relPath), data, 0644)
+			return os.MkdirAll(dstPath, 0755)
 		}
+		data, err := os.ReadFile(walkPath)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, data, 0644)
 	})
 }
 
