@@ -132,7 +132,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 	}
 	if am.concatAssets {
 		parts := strings.SplitN(assetPath, "/", 2)
-		logger.Debug("concatAssets path split", "original", assetPath, "parts", parts)
+		logger.Debug("concatAssets path", "original", assetPath, "parts", parts)
 		if len(parts) > 1 {
 			assetPath = parts[0]
 		}
@@ -173,6 +173,11 @@ func (am *assetMgr) loadMpd(logger *slog.Logger, mpdPath, mpdName string, asset 
 	}
 	md.Dur = mpd.MediaPresentationDuration.String()
 	asset.MPDs[mpdName] = md
+	if am.concatAssets {
+		parts := strings.SplitN(mpdFile, "/", 2)
+		md.Name = parts[1]
+		asset.MPDs[md.Name] = md
+	}
 
 	fillContentTypes(mpdPath, mpd.Periods[0])
 
@@ -184,7 +189,7 @@ func (am *assetMgr) loadMpd(logger *slog.Logger, mpdPath, mpdName string, asset 
 			if rep.SegmentTemplate != nil {
 				return fmt.Errorf("segmentTemplate on Representation level. Only supported on AdaptationSet level")
 			}
-			r, err := am.loadRep(logger, mpdPath, as, rep)
+			r, err := am.loadRep(logger, mpdPath, mpdName, as, rep)
 			if err != nil {
 				return fmt.Errorf("getRep: %w", err)
 			}
@@ -200,6 +205,10 @@ func (am *assetMgr) loadMpd(logger *slog.Logger, mpdPath, mpdName string, asset 
 						r.Segments[i].EndTime += uint64(existingDur)
 					}
 					existingRep.Segments = append(existingRep.Segments, r.Segments...)
+					for i := range r.SegmentPath {
+						r.SegmentPath[i].StartTime += uint64(existingDur)
+					}
+					existingRep.SegmentPath = append(existingRep.SegmentPath, r.SegmentPath...)
 				} else {
 					logger.Debug("Representation already loaded", "rep", rep.Id)
 					continue
@@ -222,7 +231,7 @@ func (am *assetMgr) loadMpd(logger *slog.Logger, mpdPath, mpdName string, asset 
 	return nil
 }
 
-func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath string, as *m.AdaptationSetType, rep *m.RepresentationType) (*RepData, error) {
+func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.AdaptationSetType, rep *m.RepresentationType) (*RepData, error) {
 	logger = logger.With("rep", rep.Id)
 	rp := RepData{
 		Version:      0, // Default version for RepData format
@@ -230,7 +239,6 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath string, as *m.Adaptatio
 		ContentType:  string(as.ContentType),
 		Codecs:       as.Codecs,
 		MpdTimescale: 1,
-		BasePath:     mpdPath,
 	}
 	// Try to load from JSON unless writeRepData is true (which forces regeneration)
 	shouldTryLoadJSON := !am.writeRepData
@@ -276,6 +284,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath string, as *m.Adaptatio
 				return nil, fmt.Errorf("readMP4Segment: %w", err)
 			}
 			rp.Segments = append(rp.Segments, seg)
+			rp.setSegmentBasePath(seg.StartTime, mpdPath)
 			t += d
 			for i := 0; i < s.R; i++ {
 				nr++
@@ -284,6 +293,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath string, as *m.Adaptatio
 					return nil, fmt.Errorf("readMP4Segment: %w", err)
 				}
 				rp.Segments = append(rp.Segments, seg)
+				rp.setSegmentBasePath(seg.StartTime, mpdPath)
 				t += d
 			}
 		}
@@ -324,6 +334,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath string, as *m.Adaptatio
 				rp.Segments[len(rp.Segments)-1].EndTime = seg.StartTime
 			}
 			rp.Segments = append(rp.Segments, seg)
+			rp.setSegmentBasePath(seg.StartTime, mpdPath)
 			if nr == endNr { // This only happens if endNumber is set
 				break
 			}
@@ -925,16 +936,21 @@ type RepData struct {
 	InitURI                string           `json:"initURI"`
 	MediaURI               string           `json:"mediaURI"`
 	Segments               []Segment        `json:"segments"`
+	SegmentPath            []SegmentPath    `json:"segmentPath"`
 	DefaultSampleDuration  uint32           `json:"defaultSampleDuration"`            // Read from trex or tfhd
 	ConstantSampleDuration *uint32          `json:"constantSampleDuration,omitempty"` // Non-zero if all samples have the same duration
 	EditListOffset         int64            `json:"editListOffset,omitempty"`
 	PreEncrypted           bool             `json:"preEncrypted"`
 	ChunkDurSSRS           *float64         `json:"chunkDurSSRS,omitempty"` // Low delay chunk duration in seconds
-	BasePath               string           `json:"basePath"` // Base path for locating segments
 	mediaRegexp            *regexp.Regexp   `json:"-"`
 	initSeg                *mp4.InitSegment `json:"-"`
 	initBytes              []byte           `json:"-"`
 	encData                *repEncData      `json:"-"`
+}
+
+type SegmentPath struct {
+	StartTime uint64 `json:"startTime"`
+	BasePath  string `json:"basePath"`
 }
 
 type repEncData struct {
@@ -979,6 +995,28 @@ func (r RepData) sampleDur() uint32 {
 func (r RepData) findSegmentIndexFromTime(t uint64) int {
 	return sort.Search(len(r.Segments), func(i int) bool {
 		return r.Segments[i].StartTime >= t
+	})
+}
+
+func (r *RepData) getSegmentBasePath(startTime uint64) string {
+	if len(r.SegmentPath) == 0 {
+		return ""
+	}
+	for i := len(r.SegmentPath) - 1; i >= 0; i-- {
+		if startTime >= r.SegmentPath[i].StartTime {
+			return r.SegmentPath[i].BasePath
+		}
+	}
+	return r.SegmentPath[0].BasePath
+}
+
+func (rp *RepData) setSegmentBasePath(startTime uint64, basePath string) {
+	if len(rp.SegmentPath) > 0 && rp.SegmentPath[len(rp.SegmentPath)-1].BasePath == basePath {
+		return
+	}
+	rp.SegmentPath = append(rp.SegmentPath, SegmentPath{
+		StartTime: startTime,
+		BasePath:  basePath,
 	})
 }
 

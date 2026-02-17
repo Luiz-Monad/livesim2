@@ -362,6 +362,38 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0644)
 }
 
+type trackFiles struct {
+	destDir     string
+	manifest    string
+	initFiles   []string // {repName, filename}
+	segmentInfo []string // {repName, segmentPattern} (e.g., "%d.m4s")
+	segmentCnt  int
+}
+
+func copyTrack(t *testing.T, srcAsset string, tf trackFiles) {
+	err := os.MkdirAll(tf.destDir, 0755)
+	require.NoError(t, err)
+
+	err = copyFile(filepath.Join(srcAsset, tf.manifest), filepath.Join(tf.destDir, tf.manifest))
+	require.NoError(t, err)
+
+	for _, init := range tf.initFiles {
+		err = os.MkdirAll(filepath.Join(tf.destDir, init), 0755)
+		require.NoError(t, err)
+		err = copyFile(filepath.Join(srcAsset, init, "init.mp4"), filepath.Join(tf.destDir, init, "init.mp4"))
+		require.NoError(t, err)
+	}
+
+	for i := 1; i <= tf.segmentCnt; i++ {
+		for _, seg := range tf.segmentInfo {
+			src := filepath.Join(srcAsset, seg, fmt.Sprintf("%d.m4s", i))
+			dst := filepath.Join(tf.destDir, seg, fmt.Sprintf("%d.m4s", i))
+			err = copyFile(src, dst)
+			require.NoError(t, err)
+		}
+	}
+}
+
 // Set the endNumber attribute in all MPDs SegmentTemplate elements
 func setSegmentEndNr(assetDir string, endNumber uint32) error {
 	files, err := os.ReadDir(assetDir)
@@ -428,43 +460,25 @@ func TestConcatAssets(t *testing.T) {
 
 			srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
 
-			err := os.MkdirAll(filepath.Join(track1Dir, "V300"), 0755)
-			require.NoError(t, err)
-			err = os.MkdirAll(filepath.Join(track1Dir, "A48"), 0755)
-			require.NoError(t, err)
-			err = copyFile(filepath.Join(srcAsset, "Manifest.mpd"), filepath.Join(track1Dir, "Manifest.mpd"))
-			require.NoError(t, err)
-			for i := 1; i <= 4; i++ {
-				err = copyFile(filepath.Join(srcAsset, "V300", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "V300", fmt.Sprintf("%d.m4s", i)))
-				require.NoError(t, err)
-				err = copyFile(filepath.Join(srcAsset, "A48", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "A48", fmt.Sprintf("%d.m4s", i)))
-				require.NoError(t, err)
-			}
-			err = copyFile(filepath.Join(srcAsset, "V300", "init.mp4"), filepath.Join(track1Dir, "V300", "init.mp4"))
-			require.NoError(t, err)
-			err = copyFile(filepath.Join(srcAsset, "A48", "init.mp4"), filepath.Join(track1Dir, "A48", "init.mp4"))
-			require.NoError(t, err)
+			copyTrack(t, srcAsset, trackFiles{
+				destDir:     track1Dir,
+				manifest:    "Manifest.mpd",
+				initFiles:   []string{"V300", "A48"},
+				segmentInfo: []string{"V300", "A48"},
+				segmentCnt:  4,
+			})
 
-			err = os.MkdirAll(filepath.Join(track2Dir, "V300"), 0755)
-			require.NoError(t, err)
-			err = os.MkdirAll(filepath.Join(track2Dir, "A48"), 0755)
-			require.NoError(t, err)
-			err = copyFile(filepath.Join(srcAsset, "Manifest.mpd"), filepath.Join(track2Dir, "Manifest.mpd"))
-			require.NoError(t, err)
-			for i := 1; i <= 4; i++ {
-				err = copyFile(filepath.Join(srcAsset, "V300", fmt.Sprintf("%d.m4s", i)), filepath.Join(track2Dir, "V300", fmt.Sprintf("%d.m4s", i)))
-				require.NoError(t, err)
-				err = copyFile(filepath.Join(srcAsset, "A48", fmt.Sprintf("%d.m4s", i)), filepath.Join(track2Dir, "A48", fmt.Sprintf("%d.m4s", i)))
-				require.NoError(t, err)
-			}
-			err = copyFile(filepath.Join(srcAsset, "V300", "init.mp4"), filepath.Join(track2Dir, "V300", "init.mp4"))
-			require.NoError(t, err)
-			err = copyFile(filepath.Join(srcAsset, "A48", "init.mp4"), filepath.Join(track2Dir, "A48", "init.mp4"))
-			require.NoError(t, err)
+			copyTrack(t, srcAsset, trackFiles{
+				destDir:     track2Dir,
+				manifest:    "Manifest.mpd",
+				initFiles:   []string{"V300", "A48"},
+				segmentInfo: []string{"V300", "A48"},
+				segmentCnt:  4,
+			})
 
 			vodFS := os.DirFS(tmpDir)
 			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
-			err = am.discoverAssets(logger)
+			err := am.discoverAssets(logger)
 			require.NoError(t, err)
 			asset, ok := am.findAsset(tc.assetPath)
 			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
@@ -483,29 +497,29 @@ func TestConcatAssetsSegmentRead(t *testing.T) {
 
 	dashDir := filepath.Join(tmpDir, "dash")
 	track1Dir := filepath.Join(dashDir, "track1")
+	track2Dir := filepath.Join(dashDir, "track2")
 
 	srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
 
-	err := os.MkdirAll(filepath.Join(track1Dir, "V300"), 0755)
-	require.NoError(t, err)
-	err = os.MkdirAll(filepath.Join(track1Dir, "A48"), 0755)
-	require.NoError(t, err)
-	err = copyFile(filepath.Join(srcAsset, "Manifest.mpd"), filepath.Join(track1Dir, "Manifest.mpd"))
-	require.NoError(t, err)
-	for i := 1; i <= 4; i++ {
-		err = copyFile(filepath.Join(srcAsset, "V300", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "V300", fmt.Sprintf("%d.m4s", i)))
-		require.NoError(t, err)
-		err = copyFile(filepath.Join(srcAsset, "A48", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "A48", fmt.Sprintf("%d.m4s", i)))
-		require.NoError(t, err)
-	}
-	err = copyFile(filepath.Join(srcAsset, "V300", "init.mp4"), filepath.Join(track1Dir, "V300", "init.mp4"))
-	require.NoError(t, err)
-	err = copyFile(filepath.Join(srcAsset, "A48", "init.mp4"), filepath.Join(track1Dir, "A48", "init.mp4"))
-	require.NoError(t, err)
+	copyTrack(t, srcAsset, trackFiles{
+		destDir:     track1Dir,
+		manifest:    "Manifest.mpd",
+		initFiles:   []string{"V300", "A48"},
+		segmentInfo: []string{"V300", "A48"},
+		segmentCnt:  4,
+	})
+
+	copyTrack(t, srcAsset, trackFiles{
+		destDir:     track2Dir,
+		manifest:    "Manifest.mpd",
+		initFiles:   []string{"V300", "A48"},
+		segmentInfo: []string{"V300", "A48"},
+		segmentCnt:  4,
+	})
 
 	vodFS := os.DirFS(tmpDir)
 	am := newAssetMgrBld(vodFS).concatAssets(true).build()
-	err = am.discoverAssets(logger)
+	err := am.discoverAssets(logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("dash")
@@ -514,11 +528,20 @@ func TestConcatAssetsSegmentRead(t *testing.T) {
 
 	rep, ok := asset.Reps["V300"]
 	require.True(t, ok, "rep V300 not found")
-	require.Greater(t, len(rep.Segments), 0, "expected segments")
+	require.Equal(t, 8, len(rep.Segments), "expected 8 segments (4 from track1 + 4 from track2)")
+	require.Equal(t, 2, len(rep.SegmentPath), "expected 2 segment paths")
 
-	segPath := path.Join(rep.BasePath, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
-	_, err = fs.ReadFile(vodFS, segPath)
-	require.NoError(t, err, "should be able to read segment using rep.BasePath=%q, got path=%q", rep.BasePath, segPath)
+	segBasePath1 := rep.getSegmentBasePath(0)
+	require.Equal(t, "dash/track1", segBasePath1, "first segments should be from track1")
+	segPath1 := path.Join(segBasePath1, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
+	_, err = fs.ReadFile(vodFS, segPath1)
+	require.NoError(t, err, "should be able to read segment from track1")
+
+	segBasePath2 := rep.getSegmentBasePath(720000)
+	require.Equal(t, "dash/track2", segBasePath2, "segments at 720000 (timescale) should be from track2")
+	segPath2 := path.Join(segBasePath2, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
+	_, err = fs.ReadFile(vodFS, segPath2)
+	require.NoError(t, err, "should be able to read segment from track2")
 }
 
 func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
