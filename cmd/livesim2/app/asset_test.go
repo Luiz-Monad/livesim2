@@ -5,6 +5,8 @@
 package app
 
 import (
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path"
@@ -352,6 +354,14 @@ func copyDir(srcDir, dstDir string) error {
 	})
 }
 
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
 // Set the endNumber attribute in all MPDs SegmentTemplate elements
 func setSegmentEndNr(assetDir string, endNumber uint32) error {
 	files, err := os.ReadDir(assetDir)
@@ -394,28 +404,70 @@ func TestConcatAssets(t *testing.T) {
 		expectedLoop int
 	}{
 		{
-			desc:         "testpic_2s without concat - should skip duplicate rep",
-			assetPath:    "assets/testpic_2s",
+			desc:         "multiple tracks under dash with concat - should concatenate segments",
+			assetPath:    "dash",
+			concatAssets: true,
+			expectedSegs: 8,
+			expectedLoop: 16000,
+		},
+		{
+			desc:         "multiple tracks under dash without concat - first track only",
+			assetPath:    "dash/track1",
 			concatAssets: false,
 			expectedSegs: 4,
 			expectedLoop: 8000,
 		},
-		{
-			desc:         "testpic_2s with concat - should concatenate segments from all MPDs",
-			assetPath:    "assets/testpic_2s",
-			concatAssets: true,
-			expectedSegs: 16,
-			expectedLoop: 32000,
-		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
-			vodFS := os.DirFS("testdata")
+			tmpDir := t.TempDir()
+
+			dashDir := filepath.Join(tmpDir, "dash")
+			track1Dir := filepath.Join(dashDir, "track1")
+			track2Dir := filepath.Join(dashDir, "track2")
+
+			srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
+
+			err := os.MkdirAll(filepath.Join(track1Dir, "V300"), 0755)
+			require.NoError(t, err)
+			err = os.MkdirAll(filepath.Join(track1Dir, "A48"), 0755)
+			require.NoError(t, err)
+			err = copyFile(filepath.Join(srcAsset, "Manifest.mpd"), filepath.Join(track1Dir, "Manifest.mpd"))
+			require.NoError(t, err)
+			for i := 1; i <= 4; i++ {
+				err = copyFile(filepath.Join(srcAsset, "V300", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "V300", fmt.Sprintf("%d.m4s", i)))
+				require.NoError(t, err)
+				err = copyFile(filepath.Join(srcAsset, "A48", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "A48", fmt.Sprintf("%d.m4s", i)))
+				require.NoError(t, err)
+			}
+			err = copyFile(filepath.Join(srcAsset, "V300", "init.mp4"), filepath.Join(track1Dir, "V300", "init.mp4"))
+			require.NoError(t, err)
+			err = copyFile(filepath.Join(srcAsset, "A48", "init.mp4"), filepath.Join(track1Dir, "A48", "init.mp4"))
+			require.NoError(t, err)
+
+			err = os.MkdirAll(filepath.Join(track2Dir, "V300"), 0755)
+			require.NoError(t, err)
+			err = os.MkdirAll(filepath.Join(track2Dir, "A48"), 0755)
+			require.NoError(t, err)
+			err = copyFile(filepath.Join(srcAsset, "Manifest.mpd"), filepath.Join(track2Dir, "Manifest.mpd"))
+			require.NoError(t, err)
+			for i := 1; i <= 4; i++ {
+				err = copyFile(filepath.Join(srcAsset, "V300", fmt.Sprintf("%d.m4s", i)), filepath.Join(track2Dir, "V300", fmt.Sprintf("%d.m4s", i)))
+				require.NoError(t, err)
+				err = copyFile(filepath.Join(srcAsset, "A48", fmt.Sprintf("%d.m4s", i)), filepath.Join(track2Dir, "A48", fmt.Sprintf("%d.m4s", i)))
+				require.NoError(t, err)
+			}
+			err = copyFile(filepath.Join(srcAsset, "V300", "init.mp4"), filepath.Join(track2Dir, "V300", "init.mp4"))
+			require.NoError(t, err)
+			err = copyFile(filepath.Join(srcAsset, "A48", "init.mp4"), filepath.Join(track2Dir, "A48", "init.mp4"))
+			require.NoError(t, err)
+
+			vodFS := os.DirFS(tmpDir)
 			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
-			err := am.discoverAssets(logger)
+			err = am.discoverAssets(logger)
 			require.NoError(t, err)
 			asset, ok := am.findAsset(tc.assetPath)
-			require.True(t, ok, "asset %s not found", tc.assetPath)
+			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
 			require.NotNil(t, asset)
 			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
 			rep, ok := asset.Reps["V300"]
@@ -423,4 +475,56 @@ func TestConcatAssets(t *testing.T) {
 			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
 		})
 	}
+}
+
+func TestConcatAssetsSegmentRead(t *testing.T) {
+	logger := slog.Default()
+	tmpDir := t.TempDir()
+
+	dashDir := filepath.Join(tmpDir, "dash")
+	track1Dir := filepath.Join(dashDir, "track1")
+
+	srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
+
+	err := os.MkdirAll(filepath.Join(track1Dir, "V300"), 0755)
+	require.NoError(t, err)
+	err = os.MkdirAll(filepath.Join(track1Dir, "A48"), 0755)
+	require.NoError(t, err)
+	err = copyFile(filepath.Join(srcAsset, "Manifest.mpd"), filepath.Join(track1Dir, "Manifest.mpd"))
+	require.NoError(t, err)
+	for i := 1; i <= 4; i++ {
+		err = copyFile(filepath.Join(srcAsset, "V300", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "V300", fmt.Sprintf("%d.m4s", i)))
+		require.NoError(t, err)
+		err = copyFile(filepath.Join(srcAsset, "A48", fmt.Sprintf("%d.m4s", i)), filepath.Join(track1Dir, "A48", fmt.Sprintf("%d.m4s", i)))
+		require.NoError(t, err)
+	}
+	err = copyFile(filepath.Join(srcAsset, "V300", "init.mp4"), filepath.Join(track1Dir, "V300", "init.mp4"))
+	require.NoError(t, err)
+	err = copyFile(filepath.Join(srcAsset, "A48", "init.mp4"), filepath.Join(track1Dir, "A48", "init.mp4"))
+	require.NoError(t, err)
+
+	vodFS := os.DirFS(tmpDir)
+	am := newAssetMgrBld(vodFS).concatAssets(true).build()
+	err = am.discoverAssets(logger)
+	require.NoError(t, err)
+
+	asset, ok := am.findAsset("dash")
+	require.True(t, ok, "asset dash not found")
+	require.NotNil(t, asset)
+
+	rep, ok := asset.Reps["V300"]
+	require.True(t, ok, "rep V300 not found")
+	require.Greater(t, len(rep.Segments), 0, "expected segments")
+
+	segPath := path.Join(rep.BasePath, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
+	_, err = fs.ReadFile(vodFS, segPath)
+	require.NoError(t, err, "should be able to read segment using rep.BasePath=%q, got path=%q", rep.BasePath, segPath)
+}
+
+func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

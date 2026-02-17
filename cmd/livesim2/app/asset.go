@@ -128,12 +128,25 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 	assetPath, mpdName := path.Split(mpdPath)
 	if assetPath != "" {
 		assetPath = assetPath[:len(assetPath)-1]
+		mpdPath = assetPath
+	}
+	if am.concatAssets {
+		parts := strings.SplitN(assetPath, "/", 2)
+		logger.Debug("concatAssets path split", "original", assetPath, "parts", parts)
+		if len(parts) > 1 {
+			assetPath = parts[0]
+		}
 	}
 	logger = logger.With("assetPath", assetPath, "mpdName", mpdName)
 	asset := am.addAsset(assetPath)
-	md := internal.ReadMPDData(am.vodFS, mpdPath)
+	return am.loadMpd(logger, mpdPath, mpdName, asset)
+}
 
-	data, err := fs.ReadFile(am.vodFS, mpdPath)
+func (am *assetMgr) loadMpd(logger *slog.Logger, mpdPath, mpdName string, asset *asset) error {
+	mpdFile := path.Join(mpdPath, mpdName)
+	md := internal.ReadMPDData(am.vodFS, mpdFile)
+
+	data, err := fs.ReadFile(am.vodFS, mpdFile)
 	if err != nil {
 		return fmt.Errorf("read MPD: %w", err)
 	}
@@ -141,7 +154,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 
 	mpd, err := m.ReadFromString(md.MPDStr)
 	if err != nil {
-		return fmt.Errorf("MPD %q: %w", mpdPath, err)
+		return fmt.Errorf("MPD %q: %w", mpdFile, err)
 	}
 
 	if len(mpd.Periods) != 1 {
@@ -161,7 +174,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 	md.Dur = mpd.MediaPresentationDuration.String()
 	asset.MPDs[mpdName] = md
 
-	fillContentTypes(assetPath, mpd.Periods[0])
+	fillContentTypes(mpdPath, mpd.Periods[0])
 
 	for _, as := range mpd.Periods[0].AdaptationSets {
 		if as.SegmentTemplate == nil {
@@ -171,7 +184,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 			if rep.SegmentTemplate != nil {
 				return fmt.Errorf("segmentTemplate on Representation level. Only supported on AdaptationSet level")
 			}
-			r, err := am.loadRep(logger, assetPath, as, rep)
+			r, err := am.loadRep(logger, mpdPath, as, rep)
 			if err != nil {
 				return fmt.Errorf("getRep: %w", err)
 			}
@@ -200,7 +213,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 			}
 			if as.ContentType == "audio" {
 				if r.ConstantSampleDuration == nil || *r.ConstantSampleDuration == 0 {
-					return fmt.Errorf("asset %s audio rep %s does not have (known) constant sample duration", assetPath, r.ID)
+					return fmt.Errorf("asset %s audio rep %s does not have (known) constant sample duration", asset.AssetPath, r.ID)
 				}
 			}
 		}
@@ -209,7 +222,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 	return nil
 }
 
-func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.AdaptationSetType, rep *m.RepresentationType) (*RepData, error) {
+func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath string, as *m.AdaptationSetType, rep *m.RepresentationType) (*RepData, error) {
 	logger = logger.With("rep", rep.Id)
 	rp := RepData{
 		Version:      0, // Default version for RepData format
@@ -217,12 +230,13 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 		ContentType:  string(as.ContentType),
 		Codecs:       as.Codecs,
 		MpdTimescale: 1,
+		BasePath:     mpdPath,
 	}
 	// Try to load from JSON unless writeRepData is true (which forces regeneration)
 	shouldTryLoadJSON := !am.writeRepData
 	jsonLoaded := false
 	if shouldTryLoadJSON {
-		ok, err := rp.loadFromJSON(logger, am.vodFS, am.repDataDir, assetPath)
+		ok, err := rp.loadFromJSON(logger, am.vodFS, am.repDataDir, mpdPath)
 		if ok {
 			logger.Debug("Loaded representation data from JSON")
 			return &rp, err
@@ -244,7 +258,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 	if st.Timescale != nil {
 		rp.MpdTimescale = int(*st.Timescale)
 	}
-	err := rp.addRegExpAndInit(logger, am.vodFS, assetPath)
+	err := rp.addRegExpAndInit(logger, am.vodFS, mpdPath)
 	if err != nil {
 		return nil, fmt.Errorf("addRegExpAndInit: %w", err)
 	}
@@ -257,7 +271,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 				t = *s.T
 			}
 			d := s.D
-			seg, err := rp.readMP4Segment(am.vodFS, assetPath, t, 0)
+			seg, err := rp.readMP4Segment(am.vodFS, mpdPath, t, 0)
 			if err != nil {
 				return nil, fmt.Errorf("readMP4Segment: %w", err)
 			}
@@ -265,7 +279,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 			t += d
 			for i := 0; i < s.R; i++ {
 				nr++
-				seg, err := rp.readMP4Segment(am.vodFS, assetPath, t, 0)
+				seg, err := rp.readMP4Segment(am.vodFS, mpdPath, t, 0)
 				if err != nil {
 					return nil, fmt.Errorf("readMP4Segment: %w", err)
 				}
@@ -295,9 +309,9 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 		for {
 			// Loop until we cannot find more files
 			if rp.ContentType != "image" {
-				seg, err = rp.readMP4Segment(am.vodFS, assetPath, 0, nr)
+				seg, err = rp.readMP4Segment(am.vodFS, mpdPath, 0, nr)
 			} else {
-				seg, err = rp.readThumbSegment(am.vodFS, assetPath, nr, startNr, segDur)
+				seg, err = rp.readThumbSegment(am.vodFS, mpdPath, nr, startNr, segDur)
 			}
 			if err != nil {
 				if !errors.Is(err, fs.ErrNotExist) {
@@ -316,7 +330,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 			nr++
 		}
 		if endNr < startNr {
-			return nil, fmt.Errorf("no segments read for rep %s", path.Join(assetPath, rp.MediaURI))
+			return nil, fmt.Errorf("no segments read for rep %s", path.Join(mpdPath, rp.MediaURI))
 		}
 	default:
 		return nil, fmt.Errorf("unknown type of representation")
@@ -344,16 +358,16 @@ segLoop:
 	if !shouldWriteJSON {
 		return &rp, nil
 	}
-	err = rp.writeToJSON(logger, am.repDataDir, assetPath)
+	err = rp.writeToJSON(logger, am.repDataDir, mpdPath)
 	return &rp, err
 }
 
 // loadFromJSON reads the representation data from a gzipped or plain JSON file.
-func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, assetPath string) (bool, error) {
+func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, mpdPath string) (bool, error) {
 	if repDataDir == "" {
 		return false, nil
 	}
-	repDataPath := path.Join(repDataDir, assetPath, rp.repDataName())
+	repDataPath := path.Join(repDataDir, mpdPath, rp.repDataName())
 	gzipPath := repDataPath + ".gz"
 	var data []byte
 	_, err := os.Stat(gzipPath)
@@ -390,14 +404,14 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, as
 	if err := json.Unmarshal(data, &rp); err != nil {
 		return true, err
 	}
-	err = rp.addRegExpAndInit(logger, vodFS, assetPath)
+	err = rp.addRegExpAndInit(logger, vodFS, mpdPath)
 	if err != nil {
 		return true, fmt.Errorf("addRegExpAndInit: %w", err)
 	}
 	return true, nil
 }
 
-func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, assetPath string) error {
+func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, mpdPath string) error {
 	switch {
 	case strings.Contains(rp.MediaURI, "$Number$"):
 		rexStr := strings.ReplaceAll(rp.MediaURI, "$Number$", `(\d+)`)
@@ -412,7 +426,7 @@ func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, assetPath 
 	}
 
 	if rp.ContentType != "image" {
-		err := rp.readInit(logger, vodFS, assetPath)
+		err := rp.readInit(logger, vodFS, mpdPath)
 		if err != nil {
 			return err
 		}
@@ -916,6 +930,7 @@ type RepData struct {
 	EditListOffset         int64            `json:"editListOffset,omitempty"`
 	PreEncrypted           bool             `json:"preEncrypted"`
 	ChunkDurSSRS           *float64         `json:"chunkDurSSRS,omitempty"` // Low delay chunk duration in seconds
+	BasePath               string           `json:"basePath"` // Base path for locating segments
 	mediaRegexp            *regexp.Regexp   `json:"-"`
 	initSeg                *mp4.InitSegment `json:"-"`
 	initBytes              []byte           `json:"-"`
@@ -1006,8 +1021,8 @@ func prepareForEncryption(codec string) bool {
 	return false
 }
 
-func (r *RepData) readInit(logger *slog.Logger, vodFS fs.FS, assetPath string) error {
-	rawInit, err := fs.ReadFile(vodFS, path.Join(assetPath, r.InitURI))
+func (r *RepData) readInit(logger *slog.Logger, vodFS fs.FS, mpdPath string) error {
+	rawInit, err := fs.ReadFile(vodFS, path.Join(mpdPath, r.InitURI))
 	if err != nil {
 		return fmt.Errorf("read initURI %q: %w", r.InitURI, err)
 	}
@@ -1026,7 +1041,7 @@ func (r *RepData) readInit(logger *slog.Logger, vodFS fs.FS, assetPath string) e
 	}
 
 	if prepareForEncryption(r.Codecs) {
-		assetName := path.Base(assetPath)
+		assetName := path.Base(mpdPath)
 		err = r.addEncryption(logger, assetName)
 		if err != nil {
 			return fmt.Errorf("addEncryption: %w", err)
@@ -1154,10 +1169,10 @@ func getInitBytes(initSeg *mp4.InitSegment) ([]byte, error) {
 }
 
 // readMP4Segment extracts segment data and returns an error if file does not exist.
-func (r *RepData) readMP4Segment(vodFS fs.FS, assetPath string, time uint64, nr uint32) (Segment, error) {
+func (r *RepData) readMP4Segment(vodFS fs.FS, mpdPath string, time uint64, nr uint32) (Segment, error) {
 	var seg Segment
 	uri := replaceTimeAndNr(r.MediaURI, time, nr)
-	repPath := path.Join(assetPath, uri)
+	repPath := path.Join(mpdPath, uri)
 
 	data, err := fs.ReadFile(vodFS, repPath)
 	if err != nil {
@@ -1191,10 +1206,10 @@ func (r *RepData) readMP4Segment(vodFS fs.FS, assetPath string, time uint64, nr 
 }
 
 // readThumbSegment reads a thumbnail segment, and returns an error if file does not exist.
-func (r *RepData) readThumbSegment(vodFS fs.FS, assetPath string, nr, startNr uint32, dur uint64) (Segment, error) {
+func (r *RepData) readThumbSegment(vodFS fs.FS, mpdPath string, nr, startNr uint32, dur uint64) (Segment, error) {
 	var seg Segment
 	uri := replaceTimeAndNr(r.MediaURI, 0, nr)
-	repPath := path.Join(assetPath, uri)
+	repPath := path.Join(mpdPath, uri)
 
 	_, err := fs.Stat(vodFS, repPath)
 	if err != nil {
