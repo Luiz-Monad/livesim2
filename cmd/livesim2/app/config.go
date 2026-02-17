@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/knadh/koanf"
@@ -201,7 +202,7 @@ func LoadConfig(args []string, cwd string) (*ServerConfig, error) {
 			return nil, err
 		}
 	}
-	if repDataRoot != "" && !path.IsAbs(repDataRoot) {
+	if repDataRoot != "" && !path.IsAbs(repDataRoot) && !filepath.IsAbs(repDataRoot) {
 		repDataRoot = path.Join(cwd, repDataRoot)
 		err = k.Load(confmap.Provider(map[string]any{
 			"repdataroot": repDataRoot,
@@ -237,7 +238,7 @@ func LoadConfig(args []string, cwd string) (*ServerConfig, error) {
 
 func makeAbsolutePath(k *koanf.Koanf, key, cwd string) (string, error) {
 	absPath := k.String(key)
-	if absPath != "" && !path.IsAbs(absPath) {
+	if absPath != "" && !path.IsAbs(absPath) && !filepath.IsAbs(absPath) {
 		absPath = path.Join(cwd, absPath)
 		err := k.Load(confmap.Provider(map[string]any{
 			key: absPath,
