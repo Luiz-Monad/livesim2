@@ -136,7 +136,7 @@ func TestLoadAsset(t *testing.T) {
 			vodFS := os.DirFS(vodRoot)
 			for _, writeRepData := range []bool{true, false} {
 				// Write repData files the first time, and read them the second
-				am := newAssetMgr(vodFS, tmpDir, writeRepData, false)
+				am := newAssetMgrBld(vodFS).repDir(tmpDir).writeRep(writeRepData).build()
 				err := am.discoverAssets(logger)
 				require.NoError(t, err)
 				asset, ok := am.findAsset(tc.assetPath)
@@ -169,7 +169,7 @@ func TestWriteMissingRepData(t *testing.T) {
 
 	// Step 1: Load assets with writeMissingRepData=true (no files exist yet)
 	// This should write RepData files
-	am1 := newAssetMgr(vodFS, tmpDir, false, true)
+	am1 := newAssetMgrBld(vodFS).repDir(tmpDir).missingRep(true).build()
 	err := am1.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -191,7 +191,7 @@ func TestWriteMissingRepData(t *testing.T) {
 
 	// Step 4: Load assets again with writeMissingRepData=true
 	// This should only regenerate the missing A48 file, not V300
-	am2 := newAssetMgr(vodFS, tmpDir, false, true)
+	am2 := newAssetMgrBld(vodFS).repDir(tmpDir).missingRep(true).build()
 	err = am2.discoverAssets(logger)
 	require.NoError(t, err)
 
