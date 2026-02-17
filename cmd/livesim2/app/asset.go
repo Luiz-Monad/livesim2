@@ -27,15 +27,37 @@ import (
 	"github.com/Eyevinn/mp4ff/mp4"
 )
 
-func newAssetMgr(vodFS fs.FS, repDataDir string, writeRepData bool, writeMissingRepData bool) *assetMgr {
-	am := assetMgr{
-		vodFS:               vodFS,
-		assets:              make(map[string]*asset),
-		repDataDir:          repDataDir,
-		writeRepData:        writeRepData,
-		writeMissingRepData: writeMissingRepData,
+type assetMgrBld struct {
+	am assetMgr
+}
+
+func newAssetMgrBld(vodFS fs.FS) *assetMgrBld {
+	return &assetMgrBld{
+		am: assetMgr{
+			vodFS:  vodFS,
+			assets: make(map[string]*asset),
+		},
 	}
-	return &am
+}
+
+func (b *assetMgrBld) repDir(repDataDir string) *assetMgrBld {
+	b.am.repDataDir = repDataDir
+	return b
+}
+
+func (b *assetMgrBld) writeRep(writeRepData bool) *assetMgrBld {
+	b.am.writeRepData = writeRepData
+	return b
+}
+
+func (b *assetMgrBld) missingRep(writeMissingRepData bool) *assetMgrBld {
+	b.am.writeMissingRepData = writeMissingRepData
+	return b
+}
+
+
+func (b *assetMgrBld) build() *assetMgr {
+	return &b.am
 }
 
 type assetMgr struct {
