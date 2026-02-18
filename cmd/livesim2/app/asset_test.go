@@ -368,6 +368,7 @@ type trackFiles struct {
 	initFiles   []string // {repName, filename}
 	segmentInfo []string // {repName, segmentPattern} (e.g., "%d.m4s")
 	segmentCnt  int
+	segments    *[]int
 }
 
 func copyTrack(t *testing.T, srcAsset string, tf trackFiles) {
@@ -384,10 +385,20 @@ func copyTrack(t *testing.T, srcAsset string, tf trackFiles) {
 		require.NoError(t, err)
 	}
 
-	for i := 1; i <= tf.segmentCnt; i++ {
-		for _, seg := range tf.segmentInfo {
-			src := filepath.Join(srcAsset, seg, fmt.Sprintf("%d.m4s", i))
-			dst := filepath.Join(tf.destDir, seg, fmt.Sprintf("%d.m4s", i))
+	if tf.segments != nil {
+		tf.segmentCnt = len(*tf.segments) / len(tf.segmentInfo)
+	}
+	for i := 0; i < tf.segmentCnt; i++ {
+		for j, seg := range tf.segmentInfo {
+			k := i + 1
+			if tf.segments != nil {
+				k = (*tf.segments)[i + j * tf.segmentCnt]
+				if k < 0 {
+					continue
+				}
+			}
+			src := filepath.Join(srcAsset, seg, fmt.Sprintf("%d.m4s", k))
+			dst := filepath.Join(tf.destDir, seg, fmt.Sprintf("%d.m4s", k))
 			err = copyFile(src, dst)
 			require.NoError(t, err)
 		}
@@ -550,4 +561,62 @@ func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+func TestConcatEditListOffset(t *testing.T) {
+	logger := slog.Default()
+	testCases := []struct {
+		desc         string
+		assetPath    string
+		concatAssets bool
+		expectedSegs int
+		expectedLoop int
+	}{
+		{
+			desc:         "multiple tracks under dash with concat and edit lists",
+			assetPath:    "dash",
+			concatAssets: true,
+			expectedSegs: 8,
+			expectedLoop: 16000,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			dashDir := filepath.Join(tmpDir, "dash")
+			track1Dir := filepath.Join(dashDir, "track1")
+			track2Dir := filepath.Join(dashDir, "track2")
+
+			srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
+
+			copyTrack(t, srcAsset, trackFiles{
+				destDir:     track1Dir,
+				manifest:    "Manifest.mpd",
+				initFiles:   []string{"V300", "A48"},
+				segmentInfo: []string{"V300", "A48"},
+				segmentCnt:  4,
+			})
+
+			copyTrack(t, srcAsset, trackFiles{
+				destDir:     track2Dir,
+				manifest:    "Manifest.mpd",
+				initFiles:   []string{"V300", "A48"},
+				segmentInfo: []string{"V300", "A48"},
+				segmentCnt:  4,
+			})
+
+			vodFS := os.DirFS(tmpDir)
+			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
+			err := am.discoverAssets(logger)
+			require.NoError(t, err)
+			asset, ok := am.findAsset(tc.assetPath)
+			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
+			require.NotNil(t, asset)
+			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
+			rep, ok := asset.Reps["V300"]
+			require.True(t, ok, "rep V300 not found")
+			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
+		})
+	}
 }

@@ -810,78 +810,77 @@ func (a *asset) validateEditListOffsetConsistency(logger *slog.Logger) error {
 
 		// Find the corresponding SegmentTemplate in the original MPDs
 		// Check all MPDs as a representation may exist in multiple MPDs
-		var segmentTemplates []*m.SegmentTemplateType
+
 		for mpdName := range a.MPDs {
 			mpd, err := a.getVodMPD(mpdName)
 			if err != nil {
 				continue
 			}
+
+			var mpdTimes []uint64
+
 			for _, as := range mpd.Periods[0].AdaptationSets {
 				for _, r := range as.Representations {
-					if r.Id == rep.ID && as.SegmentTemplate != nil && as.SegmentTemplate.SegmentTimeline != nil {
-						segmentTemplates = append(segmentTemplates, as.SegmentTemplate)
+					st := as.SegmentTemplate
+					if r.Id == rep.ID && st != nil && st.SegmentTimeline != nil {
+						var t uint64
+						for _, s := range st.SegmentTimeline.S {
+							if s.T != nil {
+								t = *s.T
+							}
+							mpdTimes = append(mpdTimes, t)
+							t += s.D
+							for i := 0; i < s.R; i++ {
+								mpdTimes = append(mpdTimes, t)
+								t += s.D
+							}
+						}
 					}
 				}
 			}
-		}
 
-		if len(segmentTemplates) == 0 {
-			logger.Debug("No SegmentTimeline found for representation", "rep", rep.ID)
-			continue
-		}
-
-		// Extract times from the original MPD SegmentTimeline (use first template found)
-		segmentTemplate := segmentTemplates[0]
-		var mpdTimes []uint64
-		var t uint64
-		for _, s := range segmentTemplate.SegmentTimeline.S {
-			if s.T != nil {
-				t = *s.T
-			}
-			mpdTimes = append(mpdTimes, t)
-			t += s.D
-			for i := 0; i < s.R; i++ {
-				mpdTimes = append(mpdTimes, t)
-				t += s.D
-			}
-		}
-
-		editListOffset := uint64(rep.EditListOffset)
-
-		// Compare BMDT values with MPD times, accounting for editListOffset
-		for i := 0; i < len(rep.Segments) && i < len(mpdTimes) && i < 3; i++ {
-			seg := rep.Segments[i]
-			actualBMDT := seg.StartTime
-			originalMPDTime := mpdTimes[i]
-
-			// Calculate what the live MPD presentation time should be with editListOffset applied
-			var expectedLiveMPDTime uint64
-			if i == 0 && originalMPDTime < editListOffset {
-				// First segment: time would be negative, so clamp to 0
-				expectedLiveMPDTime = 0
-			} else {
-				// Normal case: shift time down by editListOffset
-				expectedLiveMPDTime = originalMPDTime - editListOffset
+			if len(mpdTimes) == 0 {
+				logger.Debug("No SegmentTimeline found for representation", "rep", rep.ID)
+				continue
 			}
 
-			// Key validation: Check the relationship between BMDT and MPD times
-			// For segment 0, BMDT should equal original MPD time (usually 0)
-			// For other segments, BMDT should equal original MPD time + editListOffset
-			var expectedBMDT uint64
-			if i == 0 {
-				expectedBMDT = originalMPDTime // Segment 0 doesn't include editListOffset in BMDT
-			} else {
-				expectedBMDT = originalMPDTime + editListOffset // Other segments include editListOffset
-			}
+			editListOffset := uint64(rep.EditListOffset)
 
-			if actualBMDT != expectedBMDT {
-				return fmt.Errorf("segment %d BMDT %d does not match expected %d (original MPD time %d, editListOffset %d)",
-					i, actualBMDT, expectedBMDT, originalMPDTime, editListOffset)
-			}
+			// Compare BMDT values with MPD times, accounting for editListOffset
+			for i := 0; i < len(rep.Segments) && i < len(mpdTimes) && i < 3; i++ {
+				seg := rep.Segments[i]
+				actualBMDT := seg.StartTime
+				originalMPDTime := mpdTimes[i]
 
-			logger.Debug("EditListOffset validation passed", "segment", i, "BMDT", actualBMDT,
-				"originalMPDTime", originalMPDTime, "editListOffset", editListOffset,
-				"liveMPDTime", expectedLiveMPDTime)
+				// Calculate what the live MPD presentation time should be with editListOffset applied
+				var expectedLiveMPDTime uint64
+				if i == 0 && originalMPDTime < editListOffset {
+					// First segment: time would be negative, so clamp to 0
+					expectedLiveMPDTime = 0
+				} else {
+					// Normal case: shift time down by editListOffset
+					expectedLiveMPDTime = originalMPDTime - editListOffset
+				}
+
+				// Key validation: Check the relationship between BMDT and MPD times
+				// For segment 0, BMDT should equal original MPD time (usually 0)
+				// For other segments, BMDT should equal original MPD time + editListOffset
+				var expectedBMDT uint64
+				if i == 0 {
+					expectedBMDT = originalMPDTime // Segment 0 doesn't include editListOffset in BMDT
+				} else {
+					expectedBMDT = originalMPDTime + editListOffset // Other segments include editListOffset
+				}
+
+				if actualBMDT != expectedBMDT {
+					return fmt.Errorf("segment %d BMDT %d does not match expected %d (original MPD time %d, editListOffset %d)",
+						i, actualBMDT, expectedBMDT, originalMPDTime, editListOffset)
+				}
+
+				logger.Debug("EditListOffset validation passed", "segment", i, "BMDT", actualBMDT,
+					"originalMPDTime", originalMPDTime, "editListOffset", editListOffset,
+					"liveMPDTime", expectedLiveMPDTime)
+			}
 		}
 	}
 

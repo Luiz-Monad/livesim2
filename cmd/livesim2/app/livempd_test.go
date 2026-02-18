@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -2787,4 +2788,119 @@ func TestPECalculationWithSpecificNowMS(t *testing.T) {
 			//	"PE value should match expected for nowMS=%d", tc.nowMS)
 		})
 	}
+}
+
+// TestEditListOffsetConcatMPD tests that editListOffset affects segment timeline
+// when playing a concatenated MPD where multiple tracks with editListOffset are
+// combined into a single asset.
+// This test creates a setup similar to TestConcatEditListOffset but uses
+// the WAVE/av asset which has audio with editListOffset in the segment timeline.
+func TestEditListOffsetConcatMPD(t *testing.T) {
+	logger := slog.Default()
+	tmpDir := t.TempDir()
+
+	dashDir := filepath.Join(tmpDir, "dash")
+	track1Dir := filepath.Join(dashDir, "track1")
+	track2Dir := filepath.Join(dashDir, "track2")
+
+	srcAsset := filepath.Join("testdata", "assets", "WAVE", "av")
+
+	copyTrack(t, srcAsset, trackFiles{
+		destDir:     track1Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800, -1, -1,
+			0, 93184, 94208, 188416, 283648, 378880},
+	})
+
+	copyTrack(t, srcAsset, trackFiles{
+		destDir:     track2Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segmentCnt:  4,
+		segments: &[]int{
+			0, 25600, 51200, 76800, -1, -1,
+			0, 93184, 94208, 188416, 283648, 378880},
+	})
+
+	vodFS := os.DirFS(tmpDir)
+	am := newAssetMgrBld(vodFS).concatAssets(true).build()
+	err := am.discoverAssets(logger)
+	require.NoError(t, err)
+
+	asset, ok := am.findAsset("dash")
+	require.True(t, ok, "dash asset not found, available: %v", mapKeys(am.assets))
+	require.NotNil(t, asset)
+
+	rep, ok := asset.Reps["aac"]
+	require.True(t, ok, "aac rep not found")
+	require.Equal(t, int64(2048), rep.EditListOffset, "Expected editListOffset of 2048")
+
+	require.Equal(t, 16000, asset.LoopDurMS, "loop duration should be 16000ms for 2 concatenated tracks")
+
+	cfg := NewResponseConfig()
+	cfg.SegTimelineMode = SegTimelineModeTime
+	tsbd := m.Duration(60 * time.Second)
+
+	mpd, err := asset.getVodMPD("combined.mpd")
+	require.NoError(t, err)
+
+	require.Greater(t, len(mpd.Periods), 0, "Should have at least one period")
+
+	t.Run("EarlyTime_FirstSegmentShortenedDuration", func(t *testing.T) {
+		nowMS := int(10000)
+		wTimes := calcWrapTimes(asset, cfg, nowMS, tsbd)
+
+		videoAS := mpd.Periods[0].AdaptationSets[0]
+		refSE, err := asset.generateTimelineEntries(videoAS.Representations[0].Id, wTimes, 0, nil)
+		require.NoError(t, err)
+
+		audioAS := mpd.Periods[0].AdaptationSets[1]
+		audioRepID := audioAS.Representations[0].Id
+		audioRep := asset.Reps[audioRepID]
+		atoMS, _ := setOffsetInAdaptationSet(cfg, audioAS)
+
+		audioSE, err := asset.generateTimelineEntriesFromRef(refSE, audioRepID, nil)
+		require.NoError(t, err)
+		require.Greater(t, len(audioSE.entries), 0, "Should have audio segments")
+
+		firstSegTime := *audioSE.entries[0].T
+		firstSegDur := audioSE.entries[0].D
+
+		t.Logf("Concat early time - First segment: time=%d, duration=%d, editListOffset=%d, atoMS=%d",
+			firstSegTime, firstSegDur, audioRep.EditListOffset, atoMS)
+
+		require.Equal(t, uint64(0), firstSegTime, "First segment time should be 0 at early time")
+		require.Greater(t, firstSegDur, uint64(0), "First segment should have positive duration")
+		require.Less(t, firstSegDur, uint64(100000), "Duration should be shortened from original")
+	})
+
+	t.Run("LaterTime_FirstSegmentShiftedTime", func(t *testing.T) {
+		nowMS := int(70000)
+		wTimes := calcWrapTimes(asset, cfg, nowMS, tsbd)
+
+		videoAS := mpd.Periods[0].AdaptationSets[0]
+		refSE, err := asset.generateTimelineEntries(videoAS.Representations[0].Id, wTimes, 0, nil)
+		require.NoError(t, err)
+
+		audioAS := mpd.Periods[0].AdaptationSets[1]
+		audioRepID := audioAS.Representations[0].Id
+		audioRep := asset.Reps[audioRepID]
+
+		audioSE, err := asset.generateTimelineEntriesFromRef(refSE, audioRepID, nil)
+		require.NoError(t, err)
+		require.Greater(t, len(audioSE.entries), 0, "Should have audio segments")
+
+		firstSegTime := *audioSE.entries[0].T
+		firstSegDur := audioSE.entries[0].D
+
+		t.Logf("Concat later time - First segment: time=%d, duration=%d, editListOffset=%d",
+			firstSegTime, firstSegDur, audioRep.EditListOffset)
+
+		require.Greater(t, firstSegTime, uint64(0), "First segment time should be positive after shift")
+		require.Greater(t, firstSegDur, uint64(90000), "Duration should be normal (not shortened) at later time")
+	})
 }
