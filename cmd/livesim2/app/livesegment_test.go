@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1126,6 +1127,85 @@ func TestWriteSubSegmentWithChunkDuration(t *testing.T) {
 
 			moof := mp4d.Segments[0].Fragments[0].Moof
 			require.Equal(t, tc.expSeqNr, moof.Mfhd.SequenceNumber)
+		})
+	}
+}
+
+func TestConcatAssetLiveSegment(t *testing.T) {
+	logger := slog.Default()
+	tmpDir := t.TempDir()
+
+	dashDir := filepath.Join(tmpDir, "dash")
+	track1Dir := filepath.Join(dashDir, "track1")
+	track2Dir := filepath.Join(dashDir, "track2")
+
+	srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
+
+	copyTrack(t, srcAsset, trackFiles{
+		destDir:     track1Dir,
+		manifest:    "Manifest.mpd",
+		initFiles:   []string{"V300", "A48"},
+		segmentInfo: []string{"V300", "A48"},
+		segmentCnt:  4,
+	})
+
+	copyTrack(t, srcAsset, trackFiles{
+		destDir:     track2Dir,
+		manifest:    "Manifest.mpd",
+		initFiles:   []string{"V300", "A48"},
+		segmentInfo: []string{"V300", "A48"},
+		segmentCnt:  4,
+	})
+
+	vodFS := os.DirFS(tmpDir)
+	am := newAssetMgrBld(vodFS).concatAssets(true).build()
+	err := am.discoverAssets(logger)
+	require.NoError(t, err)
+
+	asset, ok := am.findAsset("dash")
+	require.True(t, ok, "asset dash not found, available: %v", mapKeys(am.assets))
+	require.NotNil(t, asset)
+
+	cases := []struct {
+		desc  string
+		media string
+	}{
+		{desc: "video", media: "V300/$NrOrTime$.m4s"},
+		{desc: "audio", media: "A48/$NrOrTime$.m4s"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			for _, mpdType := range []string{"Number", "TimelineTime"} {
+				t.Run(mpdType, func(t *testing.T) {
+					cfg := NewResponseConfig()
+					switch mpdType {
+					case "Number":
+						cfg.SegTimelineMode = SegTimelineModeNr
+					case "TimelineTime":
+						cfg.SegTimelineMode = SegTimelineModeTime
+					}
+					nowMS := 100_000
+
+					rep, ok := asset.Reps[strings.Split(tc.media, "/")[0]]
+					require.True(t, ok)
+					mediaTimescale := rep.MediaTimescale
+
+					for _, nr := range []int{40, 44} {
+						media := tc.media
+						mediaTime := nr * 2 * mediaTimescale
+						switch mpdType {
+						case "Number":
+							media = strings.ReplaceAll(media, "$NrOrTime$", fmt.Sprintf("%d", nr))
+						default:
+							media = strings.ReplaceAll(media, "$NrOrTime$", fmt.Sprintf("%d", mediaTime))
+						}
+						so, err := genLiveSegment(logger, vodFS, asset, cfg, media, nowMS, false)
+						require.NoError(t, err, "mpdType=%s nr=%d media=%s", mpdType, nr, media)
+						require.NotNil(t, so.seg, "mpdType=%s nr=%d", mpdType, nr)
+					}
+				})
+			}
 		})
 	}
 }

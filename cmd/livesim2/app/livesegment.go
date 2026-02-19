@@ -629,7 +629,7 @@ func createAudioSegment(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart 
 		uint64(refRep.duration()),
 		refTimescale, rep)
 	var so segOut
-	so.seg, err = createAudioSeg(vodFS, a, recipe)
+	so.seg, err = createAudioSeg(vodFS, recipe)
 	if err != nil {
 		return so, fmt.Errorf("createAudioSeg: %w", err)
 	}
