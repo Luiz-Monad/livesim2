@@ -567,8 +567,8 @@ func createOutSeg(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart string
 	if err != nil {
 		return so, err
 	}
-	segBasePath, _ := rep.getSegmentBasePathAndOffset(so.meta.origTime)
-	segPath := path.Join(segBasePath, replaceTimeAndNr(rep.MediaURI, so.meta.origTime, so.meta.origNr))
+	segBasePath, offsetStart := rep.getSegmentBasePathAndOffset(so.meta.origTime)
+	segPath := path.Join(segBasePath, replaceTimeAndNr(rep.MediaURI, offsetStart, so.meta.origNr))
 	so.data, err = fs.ReadFile(vodFS, segPath)
 	if err != nil {
 		return so, fmt.Errorf("read segment: %w", err)

@@ -437,6 +437,51 @@ func setSegmentEndNr(assetDir string, endNumber uint32) error {
 	return nil
 }
 
+func setupTestConcat(t *testing.T) string {
+	tmpDir := t.TempDir()
+	dashDir := filepath.Join(tmpDir, "dash")
+	track1Dir := filepath.Join(dashDir, "track1")
+	track2Dir := filepath.Join(dashDir, "track2")
+	track3Dir := filepath.Join(dashDir, "track3")
+
+	srcAsset := filepath.Join("testdata", "assets", "test_fixseg_edtlst")
+
+	copyTrack(t, srcAsset+"/test_av_1", trackFiles{
+		destDir:     track1Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800,
+			0, 95232, 191488, 287744,
+		},
+	})
+
+	copyTrack(t, srcAsset+"/test_av_2", trackFiles{
+		destDir:     track2Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800,
+			0, 95232, 191488, 287744,
+		},
+	})
+
+	copyTrack(t, srcAsset+"/test_av_3", trackFiles{
+		destDir:     track3Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800,
+			0, 95232, 191488, 287744,
+		},
+	})
+
+	return tmpDir
+}
+
 func TestConcatAssets(t *testing.T) {
 	logger := slog.Default()
 	testCases := []struct {
@@ -450,8 +495,8 @@ func TestConcatAssets(t *testing.T) {
 			desc:         "multiple tracks under dash with concat - should concatenate segments",
 			assetPath:    "dash",
 			concatAssets: true,
-			expectedSegs: 8,
-			expectedLoop: 16000,
+			expectedSegs: 12,
+			expectedLoop: 24000,
 		},
 		{
 			desc:         "multiple tracks under dash without concat - first track only",
@@ -461,32 +506,11 @@ func TestConcatAssets(t *testing.T) {
 			expectedLoop: 8000,
 		},
 	}
+
+	tmpDir := setupTestConcat(t)
+
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
-			tmpDir := t.TempDir()
-
-			dashDir := filepath.Join(tmpDir, "dash")
-			track1Dir := filepath.Join(dashDir, "track1")
-			track2Dir := filepath.Join(dashDir, "track2")
-
-			srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
-
-			copyTrack(t, srcAsset, trackFiles{
-				destDir:     track1Dir,
-				manifest:    "Manifest.mpd",
-				initFiles:   []string{"V300", "A48"},
-				segmentInfo: []string{"V300", "A48"},
-				segmentCnt:  4,
-			})
-
-			copyTrack(t, srcAsset, trackFiles{
-				destDir:     track2Dir,
-				manifest:    "Manifest.mpd",
-				initFiles:   []string{"V300", "A48"},
-				segmentInfo: []string{"V300", "A48"},
-				segmentCnt:  4,
-			})
-
 			vodFS := os.DirFS(tmpDir)
 			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
 			err := am.discoverAssets(logger)
@@ -495,8 +519,8 @@ func TestConcatAssets(t *testing.T) {
 			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
 			require.NotNil(t, asset)
 			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
-			rep, ok := asset.Reps["V300"]
-			require.True(t, ok, "rep V300 not found")
+			rep, ok := asset.Reps["video25fps"]
+			require.True(t, ok, "rep video25fps not found")
 			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
 		})
 	}
@@ -504,29 +528,8 @@ func TestConcatAssets(t *testing.T) {
 
 func TestConcatAssetsSegmentRead(t *testing.T) {
 	logger := slog.Default()
-	tmpDir := t.TempDir()
 
-	dashDir := filepath.Join(tmpDir, "dash")
-	track1Dir := filepath.Join(dashDir, "track1")
-	track2Dir := filepath.Join(dashDir, "track2")
-
-	srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
-
-	copyTrack(t, srcAsset, trackFiles{
-		destDir:     track1Dir,
-		manifest:    "Manifest.mpd",
-		initFiles:   []string{"V300", "A48"},
-		segmentInfo: []string{"V300", "A48"},
-		segmentCnt:  4,
-	})
-
-	copyTrack(t, srcAsset, trackFiles{
-		destDir:     track2Dir,
-		manifest:    "Manifest.mpd",
-		initFiles:   []string{"V300", "A48"},
-		segmentInfo: []string{"V300", "A48"},
-		segmentCnt:  4,
-	})
+	tmpDir := setupTestConcat(t)
 
 	vodFS := os.DirFS(tmpDir)
 	am := newAssetMgrBld(vodFS).concatAssets(true).build()
@@ -537,29 +540,24 @@ func TestConcatAssetsSegmentRead(t *testing.T) {
 	require.True(t, ok, "asset dash not found")
 	require.NotNil(t, asset)
 
-	rep, ok := asset.Reps["V300"]
-	require.True(t, ok, "rep V300 not found")
-	require.Equal(t, 8, len(rep.Segments), "expected 8 segments (4 from track1 + 4 from track2)")
-	require.Equal(t, 2, len(rep.SegmentPath), "expected 2 segment paths")
+	rep, ok := asset.Reps["video25fps"]
+	require.True(t, ok, "rep video25fps not found")
+	require.Equal(t, 12, len(rep.Segments), "expected 12 segments (4 per track)")
+	require.Equal(t, 3, len(rep.SegmentPath), "expected 3 segment paths")
 
 	segBasePath1, offset1 := rep.getSegmentBasePathAndOffset(0)
 	require.Equal(t, "dash/track1", segBasePath1, "first segments should be from track1")
 	require.Equal(t, uint64(0), offset1, "track1 starts at 0")
-	segTime1 := 0 - offset1
-	segPath1 := path.Join(segBasePath1, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
+	segPath1 := path.Join(segBasePath1, strings.ReplaceAll(rep.MediaURI, "$Time$", "0"))
 	_, err = fs.ReadFile(vodFS, segPath1)
 	require.NoError(t, err, "should be able to read segment from track1")
 
-	segBasePath2, offset2 := rep.getSegmentBasePathAndOffset(720000)
-	require.Equal(t, "dash/track2", segBasePath2, "segments at 720000 (timescale) should be from track2")
-	require.Equal(t, uint64(720000), offset2, "track2 starts at 720000")
-	segTime2 := 720000 - offset2
-	segPath2 := path.Join(segBasePath2, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
+	segBasePath2, offset2 := rep.getSegmentBasePathAndOffset(102400)
+	require.Equal(t, "dash/track2", segBasePath2, "segments at 102400 (timescale) should be from track2")
+	require.Equal(t, uint64(0), offset2, "track2 starts at 0")
+	segPath2 := path.Join(segBasePath2, strings.ReplaceAll(rep.MediaURI, "$Time$", "0"))
 	_, err = fs.ReadFile(vodFS, segPath2)
 	require.NoError(t, err, "should be able to read segment from track2")
-
-	_ = segTime1
-	_ = segTime2
 }
 
 func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
@@ -583,36 +581,15 @@ func TestConcatEditListOffset(t *testing.T) {
 			desc:         "multiple tracks under dash with concat and edit lists",
 			assetPath:    "dash",
 			concatAssets: true,
-			expectedSegs: 8,
-			expectedLoop: 16000,
+			expectedSegs: 12,
+			expectedLoop: 24000,
 		},
 	}
+	
+	tmpDir := setupTestConcat(t)
+
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
-			tmpDir := t.TempDir()
-
-			dashDir := filepath.Join(tmpDir, "dash")
-			track1Dir := filepath.Join(dashDir, "track1")
-			track2Dir := filepath.Join(dashDir, "track2")
-
-			srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
-
-			copyTrack(t, srcAsset, trackFiles{
-				destDir:     track1Dir,
-				manifest:    "Manifest.mpd",
-				initFiles:   []string{"V300", "A48"},
-				segmentInfo: []string{"V300", "A48"},
-				segmentCnt:  4,
-			})
-
-			copyTrack(t, srcAsset, trackFiles{
-				destDir:     track2Dir,
-				manifest:    "Manifest.mpd",
-				initFiles:   []string{"V300", "A48"},
-				segmentInfo: []string{"V300", "A48"},
-				segmentCnt:  4,
-			})
-
 			vodFS := os.DirFS(tmpDir)
 			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
 			err := am.discoverAssets(logger)
@@ -621,8 +598,8 @@ func TestConcatEditListOffset(t *testing.T) {
 			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
 			require.NotNil(t, asset)
 			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
-			rep, ok := asset.Reps["V300"]
-			require.True(t, ok, "rep V300 not found")
+			rep, ok := asset.Reps["video25fps"]
+			require.True(t, ok, "rep video25fps not found")
 			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
 		})
 	}

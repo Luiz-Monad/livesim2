@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1133,29 +1132,8 @@ func TestWriteSubSegmentWithChunkDuration(t *testing.T) {
 
 func TestConcatAssetLiveSegment(t *testing.T) {
 	logger := slog.Default()
-	tmpDir := t.TempDir()
 
-	dashDir := filepath.Join(tmpDir, "dash")
-	track1Dir := filepath.Join(dashDir, "track1")
-	track2Dir := filepath.Join(dashDir, "track2")
-
-	srcAsset := filepath.Join("testdata", "assets", "testpic_2s")
-
-	copyTrack(t, srcAsset, trackFiles{
-		destDir:     track1Dir,
-		manifest:    "Manifest.mpd",
-		initFiles:   []string{"V300", "A48"},
-		segmentInfo: []string{"V300", "A48"},
-		segmentCnt:  4,
-	})
-
-	copyTrack(t, srcAsset, trackFiles{
-		destDir:     track2Dir,
-		manifest:    "Manifest.mpd",
-		initFiles:   []string{"V300", "A48"},
-		segmentInfo: []string{"V300", "A48"},
-		segmentCnt:  4,
-	})
+	tmpDir := setupTestConcat(t)
 
 	vodFS := os.DirFS(tmpDir)
 	am := newAssetMgrBld(vodFS).concatAssets(true).build()
@@ -1170,8 +1148,8 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 		desc  string
 		media string
 	}{
-		{desc: "video", media: "V300/$NrOrTime$.m4s"},
-		{desc: "audio", media: "A48/$NrOrTime$.m4s"},
+		{desc: "video", media: "video25fps/$NrOrTime$.m4s"},
+		{desc: "audio", media: "aac/$NrOrTime$.m4s"},
 	}
 
 	for _, tc := range cases {
@@ -1206,6 +1184,79 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+}
+
+func TestConcatEditListLiveSegment(t *testing.T) {
+	logger := slog.Default()
+
+	tmpDir := setupTestConcat(t)
+
+	vodFS := os.DirFS(tmpDir)
+	am := newAssetMgrBld(vodFS).concatAssets(true).build()
+	err := am.discoverAssets(logger)
+	require.NoError(t, err)
+
+	asset, ok := am.findAsset("dash")
+	require.True(t, ok, "asset as not found, available: %v", mapKeys(am.assets))
+
+	videoRep, ok := asset.Reps["video25fps"]
+	require.True(t, ok, "video25fps rep not found")
+	require.Equal(t, 12, len(videoRep.Segments), "expected 12 video segments (4 per test_av)")
+
+	audioRep, ok := asset.Reps["aac"]
+	require.True(t, ok, "aac rep not found")
+	require.Equal(t, 12, len(audioRep.Segments), "expected 12 audio segments (4 per test_av)")
+
+	cfg := NewResponseConfig()
+	cfg.SegTimelineMode = SegTimelineModeTime
+	cfg.TimeShiftBufferDepthS = Ptr(500000) // Very large buffer
+	nowMS := 100_000_000                    // Large enough to include all segments
+
+	// Test segments at different positions within each test_av
+	// Segment times: test_av_1 [0, 25600, 51200, 76800], test_av_2 [102400, 128000, 153600, 179200], test_av_3 [204800, 230400, 256000, 281600]
+	// Loop wraps every 307200 (12 segments * 25600)
+	testCases := []struct {
+		name      string
+		mediaTime uint64
+	}{
+		{"seg0", 0},
+		{"seg1", 25600},
+		{"seg2", 51200},
+		{"seg3", 76800},
+		{"seg4", 102400},
+		{"seg5", 128000},
+		{"seg6", 153600},
+		{"seg7", 179200},
+		{"seg8", 204800},
+		{"seg9", 230400},
+		{"seg10", 256000},
+		{"seg11", 281600},
+		// Test wrapped times (after multiple loops)
+		{"wrap1_seg0", 307200},
+		{"wrap1_seg4", 409600},
+		{"wrap1_seg8", 512000},
+		{"wrap100_seg0", 307200 * 100},
+		{"wrap100_seg4", 307200*100 + 102400},
+		{"wrap100_seg8", 307200*100 + 204800},
+	}
+
+	for _, tc := range testCases {
+		media := fmt.Sprintf("video25fps/%d.m4s", tc.mediaTime)
+		t.Run(tc.name, func(t *testing.T) {
+			so, err := genLiveSegment(logger, vodFS, asset, cfg, media, nowMS, false)
+			require.NoError(t, err, "genLiveSegment failed for time=%d media=%s", tc.mediaTime, media)
+			require.NotNil(t, so.seg, "segment should not be nil for time=%d", tc.mediaTime)
+		})
+	}
+
+	for _, tc := range testCases {
+		media := fmt.Sprintf("video25fps/%d.m4s", tc.mediaTime)
+		t.Run(tc.name, func(t *testing.T) {
+			so, err := genLiveSegment(logger, vodFS, asset, cfg, media, nowMS, false)
+			require.NoError(t, err, "genLiveSegment failed for time=%d media=%s", tc.mediaTime, media)
+			require.NotNil(t, so.seg, "segment should not be nil for time=%d", tc.mediaTime)
 		})
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"math"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -2797,34 +2796,8 @@ func TestPECalculationWithSpecificNowMS(t *testing.T) {
 // the WAVE/av asset which has audio with editListOffset in the segment timeline.
 func TestEditListOffsetConcatMPD(t *testing.T) {
 	logger := slog.Default()
-	tmpDir := t.TempDir()
 
-	dashDir := filepath.Join(tmpDir, "dash")
-	track1Dir := filepath.Join(dashDir, "track1")
-	track2Dir := filepath.Join(dashDir, "track2")
-
-	srcAsset := filepath.Join("testdata", "assets", "WAVE", "av")
-
-	copyTrack(t, srcAsset, trackFiles{
-		destDir:     track1Dir,
-		manifest:    "combined.mpd",
-		initFiles:   []string{"video25fps", "aac"},
-		segmentInfo: []string{"video25fps", "aac"},
-		segments: &[]int{
-			0, 25600, 51200, 76800, -1, -1,
-			0, 93184, 94208, 188416, 283648, 378880},
-	})
-
-	copyTrack(t, srcAsset, trackFiles{
-		destDir:     track2Dir,
-		manifest:    "combined.mpd",
-		initFiles:   []string{"video25fps", "aac"},
-		segmentInfo: []string{"video25fps", "aac"},
-		segmentCnt:  4,
-		segments: &[]int{
-			0, 25600, 51200, 76800, -1, -1,
-			0, 93184, 94208, 188416, 283648, 378880},
-	})
+	tmpDir := setupTestConcat(t)
 
 	vodFS := os.DirFS(tmpDir)
 	am := newAssetMgrBld(vodFS).concatAssets(true).build()
@@ -2837,9 +2810,9 @@ func TestEditListOffsetConcatMPD(t *testing.T) {
 
 	rep, ok := asset.Reps["aac"]
 	require.True(t, ok, "aac rep not found")
-	require.Equal(t, int64(2048), rep.EditListOffset, "Expected editListOffset of 2048")
+	require.Equal(t, int64(1024), rep.EditListOffset, "Expected editListOffset of 1024")
 
-	require.Equal(t, 16000, asset.LoopDurMS, "loop duration should be 16000ms for 2 concatenated tracks")
+	require.Equal(t, 24000, asset.LoopDurMS, "loop duration should be 24000ms")
 
 	cfg := NewResponseConfig()
 	cfg.SegTimelineMode = SegTimelineModeTime
