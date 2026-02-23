@@ -392,7 +392,7 @@ func copyTrack(t *testing.T, srcAsset string, tf trackFiles) {
 		for j, seg := range tf.segmentInfo {
 			k := i + 1
 			if tf.segments != nil {
-				k = (*tf.segments)[i + j * tf.segmentCnt]
+				k = (*tf.segments)[i+j*tf.segmentCnt]
 				if k < 0 {
 					continue
 				}
@@ -542,17 +542,24 @@ func TestConcatAssetsSegmentRead(t *testing.T) {
 	require.Equal(t, 8, len(rep.Segments), "expected 8 segments (4 from track1 + 4 from track2)")
 	require.Equal(t, 2, len(rep.SegmentPath), "expected 2 segment paths")
 
-	segBasePath1 := rep.getSegmentBasePath(0)
+	segBasePath1, offset1 := rep.getSegmentBasePathAndOffset(0)
 	require.Equal(t, "dash/track1", segBasePath1, "first segments should be from track1")
+	require.Equal(t, uint64(0), offset1, "track1 starts at 0")
+	segTime1 := 0 - offset1
 	segPath1 := path.Join(segBasePath1, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
 	_, err = fs.ReadFile(vodFS, segPath1)
 	require.NoError(t, err, "should be able to read segment from track1")
 
-	segBasePath2 := rep.getSegmentBasePath(720000)
+	segBasePath2, offset2 := rep.getSegmentBasePathAndOffset(720000)
 	require.Equal(t, "dash/track2", segBasePath2, "segments at 720000 (timescale) should be from track2")
+	require.Equal(t, uint64(720000), offset2, "track2 starts at 720000")
+	segTime2 := 720000 - offset2
 	segPath2 := path.Join(segBasePath2, strings.ReplaceAll(rep.MediaURI, "$Number$", "1"))
 	_, err = fs.ReadFile(vodFS, segPath2)
 	require.NoError(t, err, "should be able to read segment from track2")
+
+	_ = segTime1
+	_ = segTime2
 }
 
 func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {

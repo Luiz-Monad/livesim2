@@ -997,16 +997,16 @@ func (r RepData) findSegmentIndexFromTime(t uint64) int {
 	})
 }
 
-func (r *RepData) getSegmentBasePath(startTime uint64) string {
+func (r *RepData) getSegmentBasePathAndOffset(startTime uint64) (string, uint64) {
 	if len(r.SegmentPath) == 0 {
-		return ""
+		return "", 0
 	}
 	for i := len(r.SegmentPath) - 1; i >= 0; i-- {
 		if startTime >= r.SegmentPath[i].StartTime {
-			return r.SegmentPath[i].BasePath
+			return r.SegmentPath[i].BasePath, r.SegmentPath[i].StartTime
 		}
 	}
-	return r.SegmentPath[0].BasePath
+	return r.SegmentPath[0].BasePath, r.SegmentPath[0].StartTime
 }
 
 func (rp *RepData) setSegmentBasePath(startTime uint64, basePath string) {
