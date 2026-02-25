@@ -302,7 +302,7 @@ def run_command(
         if result.stdout:
             write_style(Style.text, result.stdout)
         if result.stderr:
-            write_style(Style.error, result.stderr)
+            write_style(Style.progress, result.stderr)
     else:
         write_style(Style.error, f"{title} stdout: {result.stdout}")
         write_style(Style.error, f"{title} stderr: {result.stderr}")

@@ -15,7 +15,6 @@ import sys
 import shutil
 import time
 import json
-import subprocess
 import urllib.request
 from typing import List, Optional
 from pathlib import Path
@@ -28,8 +27,10 @@ LIVESIM_REPO = (Path(__file__).parent / "..").resolve()
 LIVESIM_PORT = 9999
 PYTHON_ENV_PATH = Path("C:/Users/LuizMonad/miniconda3/envs/py-tmp/python.exe")
 FFMPEG_PATH = Path("D:/extern/tools/ffmpeg/ffmpeg.exe")
+FFPROBE_PATH = Path("D:/extern/tools/ffmpeg/ffprobe.exe")
 VLC_PATH = Path("C:/Program Files/VideoLAN/VLC/vlc.exe")
 GO_PATH = Path("go")
+E2E_TEST_DIR = LIVESIM_REPO / "e2e-test"
 E2E_DATA_DIR = LIVESIM_REPO / "e2e-test" / "data"
 
 # PLAYLIST_REPO = Path("C:/Users/LuizMonad/Desktop/web/mediaserver-playlistgenerator")
@@ -140,7 +141,7 @@ def create_config(out_dir: Path, data_dir: Path, repdata_dir: Path):
 
     config = {
         "port": LIVESIM_PORT,
-        "livewindowS": 305,
+        "livewindowS": 300,
         "timeoutS": 0,
         "writerepdata": True,
         "concatassets": True,
@@ -181,7 +182,11 @@ def stop_livesim(livesim: Optional[AsyncCommand]):
     livesim.terminate()
 
 
-def wait_livesim(livesim: AsyncCommand, url: str, timeout=120):
+def wait_livesim(
+    livesim: AsyncCommand,
+    url: str,
+    timeout=120,
+):
     """Wait for the server to be ready."""
     write_style(s.text, f"Waiting for server at {url}")
 
@@ -207,27 +212,38 @@ def wait_livesim(livesim: AsyncCommand, url: str, timeout=120):
     raise TimeoutError(f"Server not ready after {timeout} seconds")
 
 
-def transcode_dash_to_wav_ffmpeg(mpd_url: str, output_wav: Path, duration_sec=20):
-    """Transcode DASH to WAV using ffmpeg."""
-    write_style(s.subtitle, "Transcoding DASH to WAV (ffmpeg)")
-    write_style(s.text, f"MPD URL: {mpd_url}")
-    write_style(s.text, f"Output: {output_wav}")
+def get_audio_duration(file: Path):
+    """Get the duration of an audio file."""
+
+    ffprobe = [
+        str(FFPROBE_PATH),
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_entries",
+        "stream=duration",
+        str(file),
+    ]
+    result = run_command("ffprobe", ffprobe, log=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed with code {result.returncode}")
+
+    data = json.loads(result.stdout)
+    duration = float(data["streams"][0]["duration"])
+    return duration
+
+
+def trim_audio_duration(input_wav: Path, output_wav: Path, target_duration_sec: float):
+    """Trim audio to target duration using ffmpeg."""
 
     ffmpeg = [
         str(FFMPEG_PATH),
         "-y",
-        "-fflags",
-        "+genpts+discardcorrupt",
-        "-reconnect",
-        "1",
-        "-reconnect_streamed",
-        "1",
-        "-reconnect_delay_max",
-        "5",
         "-i",
-        mpd_url,
+        str(input_wav),
         "-t",
-        str(duration_sec),
+        str(target_duration_sec),
         "-acodec",
         "pcm_s16le",
         "-ar",
@@ -238,19 +254,26 @@ def transcode_dash_to_wav_ffmpeg(mpd_url: str, output_wav: Path, duration_sec=20
     ]
     result = run_command("ffmpeg", ffmpeg)
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed with code {result.returncode}")
+        raise RuntimeError(f"ffmpeg trim failed with code {result.returncode}")
 
-    write_style(s.text, f"Transcoded to: {output_wav}")
     return output_wav
 
 
-def transcode_dash_to_wav_vlc(mpd_url: str, output_wav: Path, duration_sec=20):
-    """Transcode DASH to WAV using VLC."""
-    write_style(s.subtitle, "Transcoding DASH to WAV (VLC)")
-    write_style(s.text, f"MPD URL: {mpd_url}")
+def vlc_transcode_wav(
+    mpd_url: str,
+    tmp_dir: Path,
+    output_filename: str,
+    target_duration_sec: float,
+    overshoot_sec: float = 10,
+) -> Path:
+    """Transcode DASH to WAV using VLC with Lua interface for precise timing, then trim to target duration."""
+    wait_sec = target_duration_sec - overshoot_sec
+
+    output_wav = tmp_dir / output_filename
     write_style(s.text, f"Output: {output_wav}")
 
-    vlc_log = output_wav.parent / "vlc.log"
+    vlc_log = tmp_dir / f"vlc_{output_filename}.log"
+    # todo: install the vlc_wait.lua script to appdata
 
     transcode = (
         f"#transcode{{acodec=s16l,ab=192,channels=2,samplerate=48000}}:"
@@ -258,52 +281,82 @@ def transcode_dash_to_wav_vlc(mpd_url: str, output_wav: Path, duration_sec=20):
     )
     vlc = [
         str(VLC_PATH),
-        "-I",
-        "dummy",
-        "--quiet",
+        "--verbose=2",
+        "--file-logging",
+        "--logfile",
+        str(vlc_log),
         "--sout",
         transcode,
-        "--run-time",
-        str(duration_sec),
+        "--file-caching=2000",
+        "--network-caching=2000",
+        "--live-caching=2000",
+        "--sout-mux-caching=2000",
+        "--adaptive-use-access",
+        "--adaptive-logic=highest",
+        "-I",
+        "luaintf",
+        "--lua-intf=vlc_wait",
+        f'--lua-config="vlc_wait={{wait_sec={wait_sec}, poll_msec=100}}"',
+        "--no-video",
         mpd_url,
-        "vlc://quit",
     ]
     result = run_command("vlc", vlc)
     if result.returncode != 0:
         if vlc_log.exists():
-            write_style(s.error, f"VLC log: {vlc_log.read_text()}")
+            for line in vlc_log.read_text().splitlines():
+                if "vlc_wait" in line:
+                    write_style(s.error, line)
         raise RuntimeError(f"vlc failed with code {result.returncode}")
+    if vlc_log.exists():
+        for line in vlc_log.read_text().splitlines():
+            if "vlc_wait" in line:
+                write_style(s.progress, line)
+
+    actual_duration = get_audio_duration(output_wav)
+    if actual_duration > target_duration_sec:
+        trimmed_wav = tmp_dir / f"trimmed_{output_filename}"
+        trim_audio_duration(output_wav, trimmed_wav, target_duration_sec)
+        output_wav = trimmed_wav
 
     write_style(s.text, f"Transcoded to: {output_wav}")
     return output_wav
 
 
+def transcode_dash_to_wav_vlc(
+    mpd_url: str,
+    tmp_dir: Path,
+    duration_sec=20,
+    overshoot_sec=10,
+):
+    """Transcode DASH to WAV using VLC with Lua interface for precise timing."""
+    write_style(s.subtitle, "Transcoding DASH to WAV (VLC)")
+    write_style(s.text, f"MPD URL: {mpd_url}")
+
+    return vlc_transcode_wav(
+        mpd_url=mpd_url,
+        tmp_dir=tmp_dir,
+        output_filename="captured.wav",
+        target_duration_sec=duration_sec,
+        overshoot_sec=overshoot_sec,
+    )
+
+
 def create_baseline_wav(
-    tmp_dir: Path, mpd_url: str, sample_rate=48000, duration_sec=20
+    tmp_dir: Path,
+    mpd_url: str,
+    duration_sec=24,
+    overshoot_sec=10,
 ):
     """Create a baseline WAV file by capturing from DASH using VLC."""
     write_style(s.subtitle, "Creating baseline WAV")
 
-    baseline_wav = tmp_dir / "baseline.wav"
-
-    vlc_cmd = [
-        str(VLC_PATH),
-        "-I", "dummy",
-        "--quiet",
-        "--sout", f"#transcode{{acodec=s16l,ab=192,channels=2,samplerate={sample_rate}}}:std{{access=file,mux=wav,dst={baseline_wav}}}",
-        "--run-time", str(duration_sec),
-        mpd_url,
-        "vlc://quit",
-    ]
-
-    write_style(s.text, f"Running: {vlc_cmd}")
-    result = subprocess.run(vlc_cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        raise RuntimeError(f"VLC failed: {result.stderr}")
-
-    write_style(s.text, f"Baseline created: {baseline_wav}")
-    return baseline_wav
+    return vlc_transcode_wav(
+        mpd_url=mpd_url,
+        tmp_dir=tmp_dir,
+        output_filename="baseline.wav",
+        target_duration_sec=duration_sec,
+        overshoot_sec=overshoot_sec,
+    )
 
 
 def compare_wav(file1: Path, file2: Path):
@@ -363,18 +416,15 @@ def run_test():
         wait_livesim(livesim_process, f"{server_url}/livesim2/{manifests[0]}")
 
         mpd_url = f"{server_url}/livesim2/{manifests[0]}"
-        captured_wav = tmp_dir / "captured.wav"
-        try:
-            transcode_dash_to_wav_vlc(mpd_url, captured_wav, duration_sec=25)
-        except Exception as e:
-            write_style(s.text, f"VLC failed, trying ffmpeg: {e}")
-            transcode_dash_to_wav_ffmpeg(mpd_url, captured_wav, duration_sec=25)
+        captured_wav = transcode_dash_to_wav_vlc(mpd_url, tmp_dir, duration_sec=16)
+        dur = get_audio_duration(captured_wav)
+        write_style(s.text, f"Duration: {dur}")
 
-        if not captured_wav.exists():
-            raise RuntimeError(f"Captured WAV not created: {captured_wav}")
+        baseline_wav = create_baseline_wav(tmp_dir, mpd_url, duration_sec=16)
+        dur = get_audio_duration(baseline_wav)
+        write_style(s.text, f"Duration: {dur}")
 
-        if captured_wav.stat().st_size < 1000:
-            raise RuntimeError(f"Captured WAV too small: {captured_wav.stat().st_size} bytes")
+        result = compare_wav(baseline_wav, captured_wav)
 
         write_style(s.title, "✓ TEST PASSED: Audio captured successfully!")
         return True
