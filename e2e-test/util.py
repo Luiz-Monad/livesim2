@@ -95,20 +95,22 @@ _style_reset = "\033[0m"
 _style_term_size: Optional[tuple[int, int]] = None
 _style_term_size_chk: float = 0.0
 
+
 def _write_style_unsafe(style: Style, text: str):
     """Write styled text to console"""
 
     def make_line(line_type, txt: str):
         if not line_type:
             return None
-        ltxt = len(txt.splitlines()[0])
+        ltxt = txt.splitlines()
+        ltxt = len(ltxt[0]) if len(ltxt) > 0 else len(txt)
         global _style_term_size
         global _style_term_size_chk
         if _style_term_size is None or (time.monotonic() - _style_term_size_chk) > 0.1:
             _style_term_size = shutil.get_terminal_size()
             _style_term_size_chk = time.monotonic()
         cols = _style_term_size[0]
-        l = cols if ltxt > cols else ltxt
+        l = cols if ltxt == 0 or ltxt > cols else ltxt
         return _style_lines[line_type][1] * l
 
     def make_box(box_type, txtmsg):
@@ -236,7 +238,7 @@ class ScreenLayout:
                 row = self.main_bottom
             # divider
             write_console(Command.move_to, self.divider_row, 1)
-            _write_style_unsafe(Style.divider, "-" * self._cols)
+            _write_style_unsafe(Style.divider, "")
             # main pane
             write_console(Command.set_region, 1, self.main_bottom)
             write_console(Command.move_to, row, 1)
@@ -428,7 +430,7 @@ class DetachedAsyncCommand(AsyncCommand):
             )
 
 
-def _run_detached(
+def _run_detached_wt(
     title: str,
     cmd: List[str],
     cwd: Optional[Path] = None,
@@ -475,11 +477,37 @@ def _run_detached(
         wt_cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
     )
     wt_process.wait()  # wt exits immediately after spawning the pane
 
     write_style(Style.text, f"{title} launched detached in new WT pane")
     return DetachedAsyncCommand(title, exe_name)
+
+
+def _run_detached(
+    title: str,
+    cmd: List[str],
+    cwd: Optional[Path] = None,
+    env=None,
+):
+    """Launch command in a new Window, detached."""
+
+    exe_name = Path(cmd[0]).name
+
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        # stdout=subprocess.DEVNULL,
+        # stderr=subprocess.DEVNULL,
+        # stdin=subprocess.DEVNULL,
+    )
+
+    # Don't wait - let it run detached
+    write_style(Style.text, f"{title} launched detached in new window")
+    return DetachedAsyncCommand(title, exe_name, pid=process.pid)
 
 
 def run_command_async(
@@ -488,12 +516,15 @@ def run_command_async(
     cwd: Optional[Path] = None,
     env=None,
     detach=False,
+    use_wt=True,
 ) -> AsyncCommand:
     """Start a command asynchronously and return the Popen process."""
 
     write_style(Style.text, f"Running async: {cmd}")
 
-    if detach:
+    if detach and use_wt:
+        return _run_detached_wt(title, cmd, cwd, env)
+    elif detach:
         return _run_detached(title, cmd, cwd, env)
 
     process = subprocess.Popen(

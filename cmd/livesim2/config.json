@@ -4,6 +4,6 @@
     "timeoutS": 0,
     "writerepdata": true,
     "concatassets": true,
-    "vodroot": "C:/Users/LuizMonad/Desktop/web/mediaserver-playlistgenerator/radio_test/rtst/dash",
-    "repdataroot": "repdata"
+    "vodroot": "C:/Users/LuizMonad/Desktop/radio_test/rtst/dash",
+    "repdataroot": "C:/Users/LuizMonad/Desktop/radio_test/repdata"
 }

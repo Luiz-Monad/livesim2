@@ -4,7 +4,7 @@
 -- records for N seconds, then stops and quits VLC.
 
 local wait_s = 20
-local timeout_s = 60
+local timeout_s = 5
 local close_s = 1
 local poll_ms = 500
 
@@ -44,16 +44,17 @@ local start_time = nil
 local start_pts = nil
 
 while true do
-    -- vlc.msg.dbg("[vlc_wait] pooling")
+    --vlc.msg.dbg("[vlc_dbg_wait] pooling")
 
     local input = vlc.object.input()
 
     if input then
         local state = vlc.var.get(input, "state")
         local pts = vlc.var.get(input, "time")
-        -- vlc.msg.dbg("[vlc_wait] state: " .. state)
-        -- vlc.msg.dbg("[vlc_wait] pts: " .. pts)
+        vlc.msg.dbg("[vlc_dbg_wait] state: " .. state)
+        vlc.msg.dbg("[vlc_dbg_wait] pts: " .. pts)
 
+        launch_time = os.time()
         if state >= 2 then
             if not start_time then
                 start_time = os.time()
@@ -69,14 +70,14 @@ while true do
                 s_time = 0
             end
             local elapsed = os.time() - s_time
-            -- vlc.msg.dbg("[vlc_wait] elapsed clock: " .. elapsed .. "s")
+            vlc.msg.dbg("[vlc_dbg_wait] elapsed clock: " .. elapsed .. "s")
 
             local s_pts = start_pts
             if not s_pts then
                 s_pts = 0
             end
             local elapsed_pts = (pts - s_pts) / 1000000
-            -- vlc.msg.dbg("[vlc_wait] elapsed media time: " .. elapsed_pts .. "s")
+            vlc.msg.dbg("[vlc_dbg_wait] elapsed media time: " .. elapsed_pts .. "s")
 
             if elapsed >= wait_s then
                 vlc.msg.info("[vlc_wait] elapsed clock: " .. elapsed .. "s")
@@ -96,5 +97,6 @@ while true do
     vlc.misc.mwait(vlc.misc.mdate() + poll_ms * 1000)
 end
 
+        --vlc.msg.dbg("[vlc_dbg_wait] state: " .. state)
 vlc.misc.mwait(vlc.misc.mdate() + close_s * 1000000)
 vlc.misc.quit()

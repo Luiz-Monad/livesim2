@@ -25,7 +25,7 @@
             "processId": "${command:pickGoProcess}"
         },
         {
-            "name": "livesim [test]",
+            "name": "livesim [test_concat]",
             "type": "go",
             "request": "launch",
             "mode": "auto",
@@ -33,7 +33,23 @@
             "cwd": "${workspaceFolder}/cmd/livesim2/app",
             "args": [
                 "--cfg",
-                "${workspaceFolder}/e2e-test/data/out/config.json",
+                "${workspaceFolder}/e2e-test/data/out/config_concat.json",
+                "--loglevel",
+                "debug",
+                "--logformat",
+                "pretty",
+            ]
+        },
+        {
+            "name": "livesim [test_vod]",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/livesim2/main.go",
+            "cwd": "${workspaceFolder}/cmd/livesim2/app",
+            "args": [
+                "--cfg",
+                "${workspaceFolder}/e2e-test/data/out/config_vod.json",
                 "--loglevel",
                 "debug",
                 "--logformat",

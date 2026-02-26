@@ -11,12 +11,13 @@ This script:
 6. Compares using wav_compare
 """
 
+import argparse
 import sys
 import shutil
 import time
 import json
 import urllib.request
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from pathlib import Path
 
 from util import AsyncCommand, run_command, run_command_async, Style, write_style
@@ -24,7 +25,8 @@ from util import AsyncCommand, run_command, run_command_async, Style, write_styl
 s = Style
 
 LIVESIM_REPO = (Path(__file__).parent / "..").resolve()
-LIVESIM_PORT = 9999
+LIVESIM_PORT_LIVE = 9999
+LIVESIM_PORT_VOD = 9998
 PYTHON_ENV_PATH = Path("C:/Users/LuizMonad/miniconda3/envs/py-tmp/python.exe")
 FFMPEG_PATH = Path("D:/extern/tools/ffmpeg/ffmpeg.exe")
 FFPROBE_PATH = Path("D:/extern/tools/ffmpeg/ffprobe.exe")
@@ -33,24 +35,29 @@ GO_PATH = Path("go")
 E2E_TEST_DIR = LIVESIM_REPO / "e2e-test"
 E2E_DATA_DIR = LIVESIM_REPO / "e2e-test" / "data"
 
-# PLAYLIST_REPO = Path("C:/Users/LuizMonad/Desktop/web/mediaserver-playlistgenerator")
-# TEST_ASSET_SRC = PLAYLIST_REPO / "radio_test" / "rtst" / "dash" / "playlist"
-# TEST_ASSET_MANIFEST = "track.mpd"
-# TEST_ASSET_INI_FILES = ["track_init_iamf.mp4", "track_init_opus.mp4"]
-# TEST_ASSET_SEG_FILES = ["track_iamf_{n}.m4s", "track_opus_{n}.m4s"]
-# TEST_ASSET_SEGMENTS = None
-PLAYLIST_REPO = LIVESIM_REPO / "cmd" / "livesim2" / "app" / "testdata"
-TEST_ASSET_SRC = PLAYLIST_REPO / "assets" / "test_fixseg_edtlst"
-TEST_ASSET_MANIFEST = "combined.mpd"
-TEST_ASSET_INI_FILES = ["aac/init.mp4", "video25fps/init.mp4"]
-TEST_ASSET_SEG_FILES = ["aac/{n}.m4s", "video25fps/{n}.m4s"]
-TEST_ASSET_SEGMENTS = [
-    [0, 95232, 191488, 287744],  # aac
-    [0, 25600, 51200, 76800],  # video25fps
-]
+PLAYLIST_REPO = Path("C:/Users/LuizMonad/Desktop/radio_test")
+TEST_ASSET_COUNT = 3
+TEST_ASSET_SRC = PLAYLIST_REPO / "rtst_10th" / "dash"
+TEST_ASSET_MANIFEST = "track.mpd"
+TEST_ASSET_INI_FILES = ["track_init_iamf.mp4", "track_init_opus.mp4"]
+TEST_ASSET_SEG_FILES = ["track_iamf_{n}.m4s", "track_opus_{n}.m4s"]
+TEST_ASSET_SEG_DUR = 4
+TEST_ASSET_SEGMENTS = None
+
+# PLAYLIST_REPO = LIVESIM_REPO / "cmd" / "livesim2" / "app" / "testdata"
+# TEST_ASSET_COUNT = 3
+# TEST_ASSET_SRC = PLAYLIST_REPO / "assets" / "test_fixseg_edtlst"
+# TEST_ASSET_MANIFEST = "combined.mpd"
+# TEST_ASSET_INI_FILES = ["aac/init.mp4", "video25fps/init.mp4"]
+# TEST_ASSET_SEG_FILES = ["aac/{n}.m4s", "video25fps/{n}.m4s"]
+# TEST_ASSET_SEG_DUR = 2
+# TEST_ASSET_SEGMENTS = [
+#     [0, 95232, 191488, 287744],  # aac
+#     [0, 25600, 51200, 76800],  # video25fps
+# ]
 
 
-def setup_test_assets(data_dir: Path) -> List[str]:
+def setup_test_assets(data_dir: Path) -> Tuple[str, List[str]]:
     """Copy test assets to temporary directory with required structure for concatenation."""
     write_style(s.subtitle, "Setting up test assets")
 
@@ -97,11 +104,11 @@ def setup_test_assets(data_dir: Path) -> List[str]:
     if not radio_assets:
         raise RuntimeError(f"No assets found in {TEST_ASSET_SRC}")
 
-    src_assets = radio_assets[0:3]
+    src_assets = radio_assets[0:TEST_ASSET_COUNT]
     manifests: List[str] = []
 
-    if len(src_assets) < 3:
-        src_assets = src_assets * 3
+    if len(src_assets) < TEST_ASSET_COUNT:
+        src_assets = src_assets * TEST_ASSET_COUNT
 
     for dir in src_assets:
         copy_track(
@@ -112,9 +119,10 @@ def setup_test_assets(data_dir: Path) -> List[str]:
             segment_files=TEST_ASSET_SEG_FILES,
             segments=TEST_ASSET_SEGMENTS,
         )
+        manifests.append(f"combined/{dir.name}/{TEST_ASSET_MANIFEST}")
 
-    manifests.append("combined/" + TEST_ASSET_MANIFEST)
-    return manifests
+    combined = f"combined/{TEST_ASSET_MANIFEST}"
+    return combined, manifests
 
 
 def build_livesim(out_dir: Path) -> Path:
@@ -135,20 +143,23 @@ def build_livesim(out_dir: Path) -> Path:
     return livesim_app
 
 
-def create_config(out_dir: Path, data_dir: Path, repdata_dir: Path):
+def create_config(
+    out_dir: Path, data_dir: Path, repdata_dir: Path, port: int, concat=True
+):
     """Create config.json using testdata."""
     write_style(s.subtitle, "Creating config.json")
 
     config = {
-        "port": LIVESIM_PORT,
+        "port": port,
         "livewindowS": 300,
         "timeoutS": 0,
         "writerepdata": True,
-        "concatassets": True,
+        "concatassets": concat,
         "vodroot": str(data_dir.resolve()),
         "repdataroot": str(repdata_dir.resolve()),
     }
-    config_path = out_dir / "config.json"
+    kind = "live" if concat else "vod"
+    config_path = out_dir / f"config_{kind}.json"
     config_path.write_text(json.dumps(config, indent=2))
 
     write_style(s.text, f"Config created: {config_path}")
@@ -170,6 +181,7 @@ def start_livesim(livesim_app: Path, config_path: Path) -> AsyncCommand:
         cwd=config_path.parent,
         env=env,
         detach=True,
+        use_wt=False,
     )
 
     return process
@@ -177,9 +189,10 @@ def start_livesim(livesim_app: Path, config_path: Path) -> AsyncCommand:
 
 def stop_livesim(livesim: Optional[AsyncCommand]):
     if not livesim:
-        return
+        return None
     write_style(s.subtitle, "Stopping livesim")
     livesim.terminate()
+    return None
 
 
 def wait_livesim(
@@ -195,7 +208,6 @@ def wait_livesim(
         # Check if the process died unexpectedly
         rc = livesim.poll()
         if rc is not None:
-            livesim.terminate()
             raise RuntimeError(f"livesim exited unexpectedly (code {rc})")
 
         try:
@@ -208,7 +220,6 @@ def wait_livesim(
             )
             time.sleep(2)
 
-    livesim.terminate()
     raise TimeoutError(f"Server not ready after {timeout} seconds")
 
 
@@ -259,12 +270,44 @@ def trim_audio_duration(input_wav: Path, output_wav: Path, target_duration_sec: 
     return output_wav
 
 
+def concat_wavs(wav_files: List[Path], output_wav: Path) -> Path:
+    """Concatenate multiple WAV files using ffmpeg."""
+    concat_list_file = output_wav.parent / f"concat_{output_wav.stem}.txt"
+    with open(concat_list_file, "w") as f:
+        for wav in wav_files:
+            f.write(f"file '{wav.resolve()}'\n")
+
+    ffmpeg_concat = [
+        str(FFMPEG_PATH),
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_list_file),
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        str(output_wav),
+    ]
+    result = run_command("ffmpeg_concat", ffmpeg_concat)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg concat failed with code {result.returncode}")
+
+    return output_wav
+
+
 def vlc_transcode_wav(
-    mpd_url: str,
+    url: str,
     tmp_dir: Path,
     output_filename: str,
     target_duration_sec: float,
     overshoot_sec: float = 10,
+    segment_sec: float = 4,
 ) -> Path:
     """Transcode DASH to WAV using VLC with Lua interface for precise timing, then trim to target duration."""
     wait_sec = target_duration_sec - overshoot_sec
@@ -279,6 +322,7 @@ def vlc_transcode_wav(
         f"#transcode{{acodec=s16l,ab=192,channels=2,samplerate=48000}}:"
         f"std{{access=file,mux=wav,dst={output_wav}}}"
     )
+    vlc_wait = f"vlc_wait={{wait_sec={wait_sec}, poll_msec=100}}"
     vlc = [
         str(VLC_PATH),
         "--verbose=2",
@@ -287,20 +331,20 @@ def vlc_transcode_wav(
         str(vlc_log),
         "--sout",
         transcode,
-        "--file-caching=2000",
-        "--network-caching=2000",
-        "--live-caching=2000",
-        "--sout-mux-caching=2000",
+        f"--file-caching={segment_sec * 1000}",
+        f"--network-caching={segment_sec * 1000}",
+        f"--live-caching={segment_sec * 1000}",
+        f"--sout-mux-caching={segment_sec * 1000}",
         "--adaptive-use-access",
         "--adaptive-logic=highest",
         "-I",
         "luaintf",
         "--lua-intf=vlc_wait",
-        f'--lua-config="vlc_wait={{wait_sec={wait_sec}, poll_msec=100}}"',
+        f"--lua-config={vlc_wait}",
         "--no-video",
-        mpd_url,
+        url,
     ]
-    result = run_command("vlc", vlc)
+    result = run_command("vlc", vlc, timeout=int(target_duration_sec + 5))
     if result.returncode != 0:
         if vlc_log.exists():
             for line in vlc_log.read_text().splitlines():
@@ -322,18 +366,18 @@ def vlc_transcode_wav(
     return output_wav
 
 
-def transcode_dash_to_wav_vlc(
+def create_captured_wav(
     mpd_url: str,
     tmp_dir: Path,
     duration_sec=20,
     overshoot_sec=10,
-):
+) -> Path:
     """Transcode DASH to WAV using VLC with Lua interface for precise timing."""
     write_style(s.subtitle, "Transcoding DASH to WAV (VLC)")
     write_style(s.text, f"MPD URL: {mpd_url}")
 
     return vlc_transcode_wav(
-        mpd_url=mpd_url,
+        url=mpd_url,
         tmp_dir=tmp_dir,
         output_filename="captured.wav",
         target_duration_sec=duration_sec,
@@ -341,22 +385,50 @@ def transcode_dash_to_wav_vlc(
     )
 
 
+def create_baseline_vod_wav(
+    tmp_dir: Path,
+    data_dir: Path,
+    live_url: str,
+    manifest: str,
+) -> Path:
+    """Create a baseline WAV by transcoding test assets via livesim in non-concat mode."""
+
+    write_style(s.divider, "")
+    write_style(s.text, f"Processing manifest: {manifest}")
+
+    mpd_path = data_dir / manifest
+    seg_pattern = TEST_ASSET_SEG_FILES[0]
+    seg_template = seg_pattern.format(n="*")
+    seg_files = sorted(mpd_path.parent.glob(seg_template))
+    actual_duration = len(seg_files) * TEST_ASSET_SEG_DUR
+    write_style(s.text, f"Duration: {actual_duration}s ({len(seg_files)} segments)")
+
+    mpd_url = f"{live_url}/{manifest}"
+    return vlc_transcode_wav(
+        url=mpd_url,
+        tmp_dir=tmp_dir,
+        output_filename=f"baseline_{Path(manifest).parent.name}.wav",
+        target_duration_sec=actual_duration,
+        overshoot_sec=0,
+    )
+
+
 def create_baseline_wav(
     tmp_dir: Path,
-    mpd_url: str,
-    duration_sec=24,
-    overshoot_sec=10,
-):
-    """Create a baseline WAV file by capturing from DASH using VLC."""
-    write_style(s.subtitle, "Creating baseline WAV")
+    asset_wavs: List[Path],
+) -> Path:
+    """Create a baseline WAV by transcoding test assets via livesim in non-concat mode."""
+    write_style(s.subtitle, "Creating baseline WAV from test assets")
 
-    return vlc_transcode_wav(
-        mpd_url=mpd_url,
-        tmp_dir=tmp_dir,
-        output_filename="baseline.wav",
-        target_duration_sec=duration_sec,
-        overshoot_sec=overshoot_sec,
-    )
+    if len(asset_wavs) == 1:
+        final_wav = asset_wavs[0]
+    else:
+        write_style(s.text, "Concatenating asset WAVs")
+        final_wav = tmp_dir / "baseline.wav"
+        concat_wavs(asset_wavs, final_wav)
+
+    write_style(s.text, f"Baseline WAV created: {final_wav}")
+    return final_wav
 
 
 def compare_wav(file1: Path, file2: Path):
@@ -386,7 +458,7 @@ def compare_wav(file1: Path, file2: Path):
         return False
 
 
-def run_test():
+def run_test(spawn_livesim=False):
     """Main test function."""
     write_style(s.title, "LiveSim audio stitching E2E test")
 
@@ -402,27 +474,61 @@ def run_test():
     tmp_dir = E2E_DATA_DIR / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    livesim_process: Optional[AsyncCommand] = None
-    try:
-        manifests = setup_test_assets(data_dir)
+    manifest, manifests = setup_test_assets(data_dir)
 
+    livesim_app = Path()
+    if spawn_livesim:
         livesim_app = build_livesim(out_dir)
         write_style(s.text, f"Using livesim2: {livesim_app}")
 
-        # config_path = create_config(out_dir, data_dir, repdata_dir)
-        # livesim_process = start_livesim(livesim_app, config_path)
+    livesim_process: Optional[AsyncCommand] = None
+    try:
 
-        # server_url = f"http://localhost:{LIVESIM_PORT}"
-        # wait_livesim(livesim_process, f"{server_url}/livesim2/{manifests[0]}")
+        port = LIVESIM_PORT_LIVE
+        server_url = f"http://localhost:{port}/livesim2"
+        mpd_url = f"{server_url}/{manifest}"
+        if spawn_livesim:
+            config_path = create_config(
+                out_dir,
+                data_dir,
+                repdata_dir,
+                port,
+            )
+            livesim_process = start_livesim(livesim_app, config_path)
+            wait_livesim(livesim_process, mpd_url)
 
-        # mpd_url = f"{server_url}/livesim2/{manifests[0]}"
-        # captured_wav = transcode_dash_to_wav_vlc(mpd_url, tmp_dir, duration_sec=16)
-        captured_wav = tmp_dir / "trimmed_captured.wav"
+        captured_wav = create_captured_wav(mpd_url, tmp_dir, duration_sec=32)
         dur = get_audio_duration(captured_wav)
         write_style(s.text, f"Duration: {dur}")
 
-        # baseline_wav = create_baseline_wav(tmp_dir, mpd_url, duration_sec=16)
-        baseline_wav = tmp_dir / "trimmed_baseline.wav"
+        if spawn_livesim:
+            livesim_process = stop_livesim(livesim_process)
+
+        port = LIVESIM_PORT_VOD
+        server_url = f"http://localhost:{port}/vod"
+        mpd_url = f"{server_url}/{manifests[0]}"
+        if spawn_livesim:
+            config_path = create_config(
+                out_dir,
+                data_dir,
+                repdata_dir,
+                port,
+                concat=False,
+            )
+            livesim_process = start_livesim(livesim_app, config_path)
+            wait_livesim(livesim_process, mpd_url)
+
+        vods = []
+        for manifest in manifests:
+            baseline_vod_wav = create_baseline_vod_wav(
+                tmp_dir, data_dir, server_url, manifest
+            )
+            vods.append(baseline_vod_wav)
+
+        if spawn_livesim:
+            livesim_process = stop_livesim(livesim_process)
+
+        baseline_wav = create_baseline_wav(tmp_dir, vods)
         dur = get_audio_duration(baseline_wav)
         write_style(s.text, f"Duration: {dur}")
 
@@ -434,13 +540,20 @@ def run_test():
         return True
 
     finally:
-        pass
-        # stop_livesim(livesim_process)
+        stop_livesim(livesim_process)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Run tests with optional livesim spawning."
+    )
+    parser.add_argument(
+        "--livesim", "-s", action="store_true", help="Enable spawning livesim."
+    )
+    args = parser.parse_args()
+
     try:
-        success = run_test()
+        success = run_test(spawn_livesim=args.livesim)
         sys.exit(0 if success else 1)
     except Exception as e:
         write_style(s.error, f"TEST FAILED WITH ERROR: {e}")
