@@ -284,6 +284,56 @@ func TestWriteMissingRepData(t *testing.T) {
 	require.Equal(t, 0, a48.Version, "RepData version should be 0")
 }
 
+func TestMPDCachingRoundtrip(t *testing.T) {
+	logger := slog.Default()
+	am, _ := setupAssetMgrTmp(t)
+
+	am1 := newAssetMgrBld().from(am).missingRep(true).build()
+	err := am1.discoverAssets(logger)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		desc  string
+		asset string
+	}{
+		{
+			desc:  "CTA-Wave AAC with editlist",
+			asset: "WAVE/av",
+		},
+		{
+			desc:  "testpic_2s",
+			asset: "testpic_2s",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			assetWrite, ok := am1.findAsset(tc.asset)
+			require.True(t, ok)
+			require.NotNil(t, assetWrite)
+
+			require.NotEmpty(t, assetWrite.MPDs, "should have MPDs")
+
+			am2 := newAssetMgrBld().from(am).missingRep(true).build()
+			err = am2.discoverAssets(logger)
+			require.NoError(t, err)
+
+			assetRead, ok := am2.findAsset(tc.asset)
+			require.True(t, ok)
+			require.NotNil(t, assetRead)
+
+			require.Equal(t, len(assetWrite.MPDs), len(assetRead.MPDs), "should have same number of MPDs")
+
+			for mpdName, mpdWrite := range assetWrite.MPDs {
+				mpdRead, ok := assetRead.MPDs[mpdName]
+				require.True(t, ok, "MPD %s should exist in cached load", mpdName)
+				require.Equal(t, mpdWrite.Name, mpdRead.Name)
+				require.Equal(t, mpdWrite.OrigURI, mpdRead.OrigURI)
+				require.Equal(t, mpdWrite.MPDStr, mpdRead.MPDStr, "MPDStr should match")
+			}
+		})
+	}
+}
+
 func TestAssetLookupForNameOverlap(t *testing.T) {
 	am := assetMgr{}
 	am.assets = make(map[string]*asset)

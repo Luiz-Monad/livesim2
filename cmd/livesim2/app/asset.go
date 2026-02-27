@@ -145,17 +145,46 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 	}
 	logger = logger.With("assetPath", assetPath, "mpdName", mpdName)
 	asset := am.addAsset(assetPath)
-	md := internal.ReadMPDData(am.vodFS, mpdPath)
+	return am.loadMpd(logger, assetPath, mpdName, asset)
+}
 
-	data, err := fs.ReadFile(am.vodFS, mpdPath)
-	if err != nil {
-		return fmt.Errorf("read MPD: %w", err)
+func (am *assetMgr) loadMpd(logger *slog.Logger, assetPath, mpdName string, asset *asset) error {
+	mpdFile := path.Join(assetPath, mpdName)
+
+	shouldTryLoadJSON := !am.writeRepData
+	jsonLoaded := false
+	if shouldTryLoadJSON {
+		var md internal.MPDData
+		ok, err := md.LoadFromJSON(logger, am.repFS, mpdFile)
+		if ok {
+			logger.Debug("Loaded MPD from cache", "mpdFile", mpdFile)
+			if err != nil {
+				return err
+			}
+			return am.processMpd(logger, assetPath, mpdName, md, asset)
+		}
 	}
-	md.MPDStr = string(data)
 
+	md := internal.ReadMPDData(am.vodFS, mpdFile)
+
+	shouldWriteJSON := am.writeRepData || (am.writeMissingRepData && !jsonLoaded)
+	if shouldWriteJSON {
+		err := md.WriteToJSON(logger, am.repFS, mpdFile)
+		if err != nil {
+			return fmt.Errorf("write MPD to cache: %w", err)
+		}
+	}
+
+	return am.processMpd(logger, assetPath, mpdName, md, asset)
+}
+
+func (am *assetMgr) processMpd(logger *slog.Logger, assetPath, mpdName string, md internal.MPDData, asset *asset) error {
+	if md.MPDStr == "" {
+		return fmt.Errorf("read MPD: %w", fs.ErrNotExist)
+	}
 	mpd, err := m.ReadFromString(md.MPDStr)
 	if err != nil {
-		return fmt.Errorf("MPD %q: %w", mpdPath, err)
+		return fmt.Errorf("MPD %q/%q: %w", assetPath, mpdName, err)
 	}
 
 	if len(mpd.Periods) != 1 {
@@ -208,6 +237,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 			}
 		}
 	}
+
 	logger.Info("Asset MPD loaded")
 	return nil
 }
@@ -375,7 +405,7 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, repFS fs.FS, assetPath stri
 		if err != nil {
 			return true, err
 		}
-		logger.Info("Read gzipped repdata", "path", gzipPath)
+		logger.Info("Read gzipped repData", "path", gzipPath)
 	}
 	if len(data) == 0 {
 		fh, err = repFS.Open(repDataPath)
@@ -384,7 +414,7 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, repFS fs.FS, assetPath stri
 			if err != nil {
 				return true, err
 			}
-			logger.Info("Read repdata", "path", repDataPath)
+			logger.Info("Read repData", "path", repDataPath)
 		}
 	}
 	if len(data) == 0 {
@@ -407,7 +437,7 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, repFS fs.FS, assetPath stri
 		assetName := path.Base(assetPath)
 		err = rp.addEncryption(logger, assetName)
 		if err != nil {
-			return false, fmt.Errorf("addEncryption: %w", err)
+			return true, fmt.Errorf("addEncryption: %w", err)
 		}
 	}
 	return true, nil
