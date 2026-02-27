@@ -69,6 +69,15 @@ func (b *assetMgrBld) build() *assetMgr {
 	return &b.am
 }
 
+func (b *assetMgrBld) from(am *assetMgr) *assetMgrBld {
+	return newAssetMgrBld().
+		vodFs(am.vodFS).
+		repFs(am.repFS).
+		writeRep(am.writeRepData).
+		missingRep(am.writeMissingRepData).
+		concatAssets(am.concatAssets)
+}
+
 type assetMgr struct {
 	vodFS               fs.FS
 	repFS               rwfs.FS
@@ -216,7 +225,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 	shouldTryLoadJSON := !am.writeRepData
 	jsonLoaded := false
 	if shouldTryLoadJSON {
-		ok, err := rp.loadFromJSON(logger, am.vodFS, am.repFS, assetPath)
+		ok, err := rp.loadFromJSON(logger, am.repFS, assetPath)
 		if ok {
 			logger.Debug("Loaded representation data from JSON")
 			return &rp, err
@@ -238,7 +247,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 	if st.Timescale != nil {
 		rp.MpdTimescale = int(*st.Timescale)
 	}
-	err := rp.addRegExp(logger)
+	err := rp.addRegExp()
 	if err != nil {
 		return nil, fmt.Errorf("addRegExp: %w", err)
 	}
@@ -347,7 +356,10 @@ segLoop:
 }
 
 // loadFromJSON reads the representation data from a gzipped or plain JSON file.
-func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repFS fs.FS, assetPath string) (bool, error) {
+func (rp *RepData) loadFromJSON(logger *slog.Logger, repFS fs.FS, assetPath string) (bool, error) {
+	if (repFS == nil) {
+		return false, nil
+	}
 	repDataPath := path.Join(assetPath, rp.repDataName())
 	gzipPath := repDataPath + ".gz"
 	var data []byte
@@ -378,21 +390,30 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repFS fs.FS, a
 	if len(data) == 0 {
 		return false, nil
 	}
-	if err := json.Unmarshal(data, &rp); err != nil {
+	if err := json.Unmarshal(data, rp); err != nil {
 		return true, err
 	}
-	err = rp.addRegExp(logger)
+	err = rp.addRegExp()
 	if err != nil {
 		return true, fmt.Errorf("addRegExp: %w", err)
 	}
-	err = rp.addInit(logger, vodFS, assetPath)
-	if err != nil {
-		return true, fmt.Errorf("addInit: %w", err)
+	if len(rp.InitBytes) > 0 {
+		rp.initSeg, err = getInitSeg(rp.InitBytes)
+		if err != nil {
+			return true, fmt.Errorf("getInitSeg: %w", err)
+		}
+	}
+	if prepareForEncryption(rp.Codecs) {
+		assetName := path.Base(assetPath)
+		err = rp.addEncryption(logger, assetName)
+		if err != nil {
+			return false, fmt.Errorf("addEncryption: %w", err)
+		}
 	}
 	return true, nil
 }
 
-func (rp *RepData) addRegExp(logger *slog.Logger) error {
+func (rp *RepData) addRegExp() error {
 	switch {
 	case strings.Contains(rp.MediaURI, "$Number$"):
 		rexStr := strings.ReplaceAll(rp.MediaURI, "$Number$", `(\d+)`)
@@ -900,24 +921,24 @@ type RepData struct {
 	EditListOffset         int64            `json:"editListOffset,omitempty"`
 	PreEncrypted           bool             `json:"preEncrypted"`
 	ChunkDurSSRS           *float64         `json:"chunkDurSSRS,omitempty"` // Low delay chunk duration in seconds
+	InitBytes              []byte           `json:"initBytes,omitempty"`
 	mediaRegexp            *regexp.Regexp   `json:"-"`
 	initSeg                *mp4.InitSegment `json:"-"`
-	initBytes              []byte           `json:"-"`
 	encData                *repEncData      `json:"-"`
 }
 
 type repEncData struct {
-	keyID   id16   // Should be common within one AdaptationSet, but for now common for one asset
-	key     id16   // Should be common within one AdaptationSet, but for now common for one asset
-	iv      []byte // Can be random, but we use a constant default value at start
-	initEnc map[string]initEncData
+	KeyID   id16                   `json:"keyID"` // Should be common within one AdaptationSet, but for now common for one asset
+	Key     id16                   `json:"key"`   // Should be common within one AdaptationSet, but for now common for one asset
+	Iv      []byte                 `json:"iv"`    // Can be random, but we use a constant default value at start
+	InitEnc map[string]initEncData `json:"initEnc"`
 }
 
 type initEncData struct {
-	scheme  string
-	pd      *mp4.InitProtectData
-	init    *mp4.InitSegment
-	initRaw []byte
+	Scheme  string               `json:"scheme"`
+	pd      *mp4.InitProtectData `json:"-"`
+	init    *mp4.InitSegment     `json:"-"`
+	InitRaw []byte               `json:"initRaw"`
 }
 
 var defaultIV = []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
@@ -1004,7 +1025,7 @@ func (r *RepData) readInit(logger *slog.Logger, vodFS fs.FS, assetPath string) e
 		return fmt.Errorf("getElstOffset: %w", err)
 	}
 	r.EditListOffset = editListOffset
-	r.initBytes, err = getInitBytes(r.initSeg)
+	r.InitBytes, err = getInitBytes(r.initSeg)
 	if err != nil {
 		return fmt.Errorf("getInitBytes: %w", err)
 	}
@@ -1073,13 +1094,13 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 	// Set up the encryption data for this representation given asset
 	kid := kidFromString(assetName)
 	red := repEncData{
-		keyID:   kid,
-		key:     kidToKey(kid),
-		iv:      defaultIV,
-		initEnc: make(map[string]initEncData, 2),
+		KeyID:   kid,
+		Key:     kidToKey(kid),
+		Iv:      defaultIV,
+		InitEnc: make(map[string]initEncData, 2),
 	}
 
-	preEncrypted, err := checkPreEncrypted(logger, r.initBytes)
+	preEncrypted, err := checkPreEncrypted(logger, r.InitBytes)
 	if err != nil {
 		return fmt.Errorf("checkPreEncrypted: %w", err)
 	}
@@ -1088,9 +1109,9 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 		return nil
 	}
 
-	rawInit := r.initBytes
+	rawInit := r.InitBytes
 	for _, scheme := range []string{"cbcs", "cenc"} {
-		initProtect, initSeg, error := genEncInit(rawInit, red.keyID, red.iv, scheme)
+		initProtect, initSeg, error := genEncInit(rawInit, red.KeyID, red.Iv, scheme)
 		if error != nil {
 			return fmt.Errorf("genEncInit: %w", error)
 		}
@@ -1100,12 +1121,12 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 			return fmt.Errorf("getInitBytes: %w", err)
 		}
 		rd := initEncData{
-			scheme:  scheme,
+			Scheme:  scheme,
 			pd:      initProtect,
 			init:    initSeg,
-			initRaw: rawEncInit,
+			InitRaw: rawEncInit,
 		}
-		red.initEnc[scheme] = rd
+		red.InitEnc[scheme] = rd
 	}
 	r.encData = &red
 	return nil

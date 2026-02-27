@@ -373,7 +373,7 @@ func matchInit(segmentPart string, cfg *ResponseConfig, drmCfg *drm.DrmConfig, a
 	var im initMatch
 	for _, rep := range a.Reps {
 		if segmentPart == rep.InitURI {
-			im.init = rep.initBytes
+			im.init = rep.InitBytes
 			if rep.encData == nil { // pre-encrypted or subtitle track
 				im.isInit = true
 				im.rep = rep
@@ -383,7 +383,7 @@ func matchInit(segmentPart string, cfg *ResponseConfig, drmCfg *drm.DrmConfig, a
 				switch cfg.DRM {
 				case "eccp-cenc", "eccp-cbcs":
 					scheme := strings.TrimPrefix(cfg.DRM, "eccp-")
-					im.init = rep.encData.initEnc[scheme].initRaw
+					im.init = rep.encData.InitEnc[scheme].InitRaw
 				default:
 					// Here we should encrypt the raw init segment (and possibly add PSSH boxes)
 					drmCfg, ok := drmCfg.Map[cfg.DRM]
@@ -397,7 +397,7 @@ func matchInit(segmentPart string, cfg *ResponseConfig, drmCfg *drm.DrmConfig, a
 					scheme := keyData.CommonEncryptionScheme
 					kid := sliceToId16(keyData.KeyID)
 					iv := keyData.ExplicitIV
-					_, initSeg, err := genEncInit(rep.initBytes, kid, iv, scheme)
+					_, initSeg, err := genEncInit(rep.InitBytes, kid, iv, scheme)
 					if err != nil {
 						return im, fmt.Errorf("genEncInit: %w", err)
 					}
@@ -474,9 +474,9 @@ func encryptFrags(log *slog.Logger, cfg *ResponseConfig, drmCfg *drm.DrmConfig,
 	switch cfg.DRM {
 	case "eccp-cenc", "eccp-cbcs":
 		scheme = strings.TrimPrefix(cfg.DRM, "eccp-")
-		ipd = ed.initEnc[scheme].pd
-		key = ed.key[:]
-		iv = ed.iv[:]
+		ipd = ed.InitEnc[scheme].pd
+		key = ed.Key[:]
+		iv = ed.Iv[:]
 	default: //  cfg.DRM != ""
 		dd, ok := drmCfg.Map[cfg.DRM]
 		if !ok {
@@ -487,7 +487,7 @@ func encryptFrags(log *slog.Logger, cfg *ResponseConfig, drmCfg *drm.DrmConfig,
 			return fmt.Errorf("get content key for %s: %w", rp.ContentType, err)
 		}
 		scheme = keyData.CommonEncryptionScheme
-		ipdStart := *ed.initEnc[scheme].pd
+		ipdStart := *ed.InitEnc[scheme].pd
 		ipd = &ipdStart
 		tenc := *ipd.Tenc
 		tenc.DefaultKID = keyData.KeyID

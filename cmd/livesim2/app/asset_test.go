@@ -41,7 +41,7 @@ func TestLoadAsset(t *testing.T) {
 	}{
 		{
 			desc:      "CTA-Wave AAC with editlist",
-			assetPath: "assets/WAVE/av",
+			assetPath: "WAVE/av",
 			ad: wantedAssetData{
 				nrReps:         2,
 				loopDurationMS: 8000,
@@ -66,7 +66,7 @@ func TestLoadAsset(t *testing.T) {
 		},
 		{
 			desc:         "testpic_2s",
-			assetPath:    "assets/testpic_2s",
+			assetPath:    "testpic_2s",
 			segmentEndNr: 0, // Will not be used
 			ad: wantedAssetData{
 				nrReps:         5,
@@ -91,7 +91,7 @@ func TestLoadAsset(t *testing.T) {
 		},
 		{
 			desc:         "testpic_2s with endNumber == 2",
-			assetPath:    "assets/testpic_2s",
+			assetPath:    "testpic_2s",
 			segmentEndNr: 2, // Shorten representations to 2 segments via SegmentTemplate,
 			ad: wantedAssetData{
 				nrReps:         5,
@@ -117,40 +117,106 @@ func TestLoadAsset(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
-			vodRoot := "testdata"
-			tmpDir := t.TempDir()
+			am, tmpDir := setupAssetMgrCopy(t, tc.assetPath)
 			if tc.segmentEndNr > 0 {
-				// Copy the the asset part of testdata to a temporary directory and shorten the representations
-				src := path.Join(vodRoot, tc.assetPath)
-				dst := path.Join(tmpDir, tc.assetPath)
-				err := copyDir(src, dst)
-				require.NoError(t, err)
-				vodRoot = tmpDir
-				err = setSegmentEndNr(path.Join(vodRoot, tc.assetPath), tc.segmentEndNr)
+				// Shorten the representations of assets in temp vodFS
+				err := setSegmentEndNr(path.Join(tmpDir, tc.assetPath), tc.segmentEndNr)
 				require.NoError(t, err)
 			}
-			vodFS := os.DirFS(vodRoot)
-			repFS := rwfs.OSDirFS(t.TempDir())
-			for _, writeRepData := range []bool{true, false} {
-				// Write repData files the first time, and read them the second
-				am := newAssetMgrBld().vodFs(vodFS).repFs(repFS).writeRep(writeRepData).build()
-				err := am.discoverAssets(logger)
-				require.NoError(t, err)
-				asset, ok := am.findAsset(tc.assetPath)
-				require.True(t, ok)
-				require.NotNil(t, asset)
-				require.Equal(t, tc.ad.nrReps, len(asset.Reps), "nr reps in asset %s", asset.AssetPath)
-				require.Equal(t, tc.ad.loopDurationMS, asset.LoopDurMS)
-				for repID, wrd := range tc.rds {
-					rep, ok := asset.Reps[repID]
-					require.True(t, ok, "repID %s not found in asset %s", repID, asset.AssetPath)
-					require.NotNil(t, rep)
-					require.Equal(t, wrd.nrSegs, len(rep.Segments), "repID %s in asset %s", repID, asset.AssetPath)
-					require.Equal(t, wrd.initURI, rep.InitURI)
-					require.Equal(t, wrd.mpdTimescale, rep.MpdTimescale, "repID %s in asset %s", repID, asset.AssetPath)
-					require.Equal(t, wrd.mediaTimescale, rep.MediaTimescale, "repID %s in asset %s", repID, asset.AssetPath)
-					require.Equal(t, wrd.duration, rep.duration())
-					require.Equal(t, wrd.editListOffset, rep.EditListOffset)
+			err := am.discoverAssets(logger)
+			require.NoError(t, err)
+			asset, ok := am.findAsset(tc.assetPath)
+			require.True(t, ok)
+			require.NotNil(t, asset)
+			require.Equal(t, tc.ad.nrReps, len(asset.Reps), "nr reps in asset %s", asset.AssetPath)
+			require.Equal(t, tc.ad.loopDurationMS, asset.LoopDurMS)
+			for repID, wrd := range tc.rds {
+				rep, ok := asset.Reps[repID]
+				require.True(t, ok, "repID %s not found in asset %s", repID, asset.AssetPath)
+				require.NotNil(t, rep)
+				require.Equal(t, wrd.nrSegs, len(rep.Segments), "repID %s in asset %s", repID, asset.AssetPath)
+				require.Equal(t, wrd.initURI, rep.InitURI)
+				require.Equal(t, wrd.mpdTimescale, rep.MpdTimescale, "repID %s in asset %s", repID, asset.AssetPath)
+				require.Equal(t, wrd.mediaTimescale, rep.MediaTimescale, "repID %s in asset %s", repID, asset.AssetPath)
+				require.Equal(t, wrd.duration, rep.duration())
+				require.Equal(t, wrd.editListOffset, rep.EditListOffset)
+			}
+		})
+	}
+}
+
+func TestAssetRepDataRoundtrip(t *testing.T) {
+	logger := slog.Default()
+	am, _ := setupAssetMgrTmp(t)
+
+	am1 := newAssetMgrBld().from(am).writeRep(true).build()
+	err := am1.discoverAssets(logger)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		desc  string
+		asset string
+	}{
+		{
+			desc:  "CTA-Wave AAC with editlist",
+			asset: "WAVE/av",
+		},
+		{
+			desc:  "testpic_2s",
+			asset: "testpic_2s",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+
+			assetWrite, ok := am1.findAsset(tc.asset)
+			require.True(t, ok)
+			require.NotNil(t, assetWrite)
+
+			am2 := newAssetMgrBld().from(am).missingRep(true).build()
+			err = am2.discoverAssets(logger)
+			require.NoError(t, err)
+
+			assetRead, ok := am2.findAsset(tc.asset)
+			require.True(t, ok)
+			require.NotNil(t, assetRead)
+
+			require.Equal(t, len(assetWrite.Reps), len(assetRead.Reps), "should have same number of representations")
+
+			for repID, repWrite := range assetWrite.Reps {
+				repRead, ok := assetRead.Reps[repID]
+				require.True(t, ok, "representation should exist in cached load")
+
+				require.Equal(t, repWrite.ID, repRead.ID)
+				require.Equal(t, repWrite.ContentType, repRead.ContentType)
+				require.Equal(t, repWrite.Codecs, repRead.Codecs)
+				require.Equal(t, repWrite.MpdTimescale, repRead.MpdTimescale)
+				require.Equal(t, repWrite.MediaTimescale, repRead.MediaTimescale)
+				require.Equal(t, repWrite.InitURI, repRead.InitURI)
+				require.Equal(t, repWrite.MediaURI, repRead.MediaURI)
+				require.Equal(t, repWrite.DefaultSampleDuration, repRead.DefaultSampleDuration)
+				require.Equal(t, repWrite.PreEncrypted, repRead.PreEncrypted)
+
+				require.Equal(t, len(repWrite.Segments), len(repRead.Segments), "should have same number of segments")
+				for i := range repWrite.Segments {
+					require.Equal(t, repWrite.Segments[i].StartTime, repRead.Segments[i].StartTime)
+					require.Equal(t, repWrite.Segments[i].EndTime, repRead.Segments[i].EndTime)
+				}
+
+				if len(repWrite.InitBytes) > 0 {
+					require.NotNil(t, repRead.InitBytes, "initBytes should be populated from cache")
+					require.Equal(t, repWrite.InitBytes, repRead.InitBytes, "initBytes should match")
+					require.NotNil(t, repRead.initSeg, "initSeg should be populated from cache")
+				}
+
+				if repWrite.encData != nil && repWrite.encData.InitEnc != nil {
+					require.NotNil(t, repRead.encData, "encData should be populated from cache")
+					require.NotNil(t, repRead.encData.InitEnc, "encData.initEnc should be populated from cache")
+					for scheme, encWrite := range repWrite.encData.InitEnc {
+						encRead, ok := repRead.encData.InitEnc[scheme]
+						require.True(t, ok, "scheme %s should exist in cached encData", scheme)
+						require.Equal(t, encWrite.InitRaw, encRead.InitRaw, "initRaw should match for scheme %s", scheme)
+					}
 				}
 			}
 		})
@@ -159,15 +225,12 @@ func TestLoadAsset(t *testing.T) {
 
 func TestWriteMissingRepData(t *testing.T) {
 	logger := slog.Default()
-	vodRoot := "testdata"
-	assetPath := "assets/testpic_2s"
-	tmpDir := t.TempDir()
-	vodFS := os.DirFS(vodRoot)
-	repFS := rwfs.OSDirFS(tmpDir)
+	assetPath := "testpic_2s"
+	am, tmpDir := setupAssetMgrTmp(t)
 
 	// Step 1: Load assets with writeMissingRepData=true (no files exist yet)
 	// This should write RepData files
-	am1 := newAssetMgrBld().vodFs(vodFS).repFs(repFS).missingRep(true).build()
+	am1 := newAssetMgrBld().from(am).missingRep(true).build()
 	err := am1.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -189,7 +252,7 @@ func TestWriteMissingRepData(t *testing.T) {
 
 	// Step 4: Load assets again with writeMissingRepData=true
 	// This should only regenerate the missing A48 file, not V300
-	am2 := newAssetMgrBld().vodFs(vodFS).repFs(repFS).missingRep(true).build()
+	am2 := newAssetMgrBld().from(am).missingRep(true).build()
 	err = am2.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -388,4 +451,25 @@ func setSegmentEndNr(assetDir string, endNumber uint32) error {
 func setupAssetMgr() *assetMgr {
 	vodFS := os.DirFS("testdata/assets")
 	return newAssetMgrBld().vodFs(vodFS).build()
+}
+
+func setupAssetMgrTmp(t *testing.T) (*assetMgr, string) {
+	tmpDir := t.TempDir()
+	vodFS := os.DirFS("testdata/assets")
+	repFS := rwfs.OSDirFS(tmpDir)
+	return newAssetMgrBld().vodFs(vodFS).repFs(repFS).build(), tmpDir
+}
+
+func setupAssetMgrCopy(t *testing.T, assetPath string) (*assetMgr, string) {
+	tmpDir := t.TempDir()
+
+	vodRoot := "testdata/assets"
+	src := path.Join(vodRoot, assetPath)
+	dst := path.Join(tmpDir, assetPath)
+
+	err := copyDir(src, dst)
+	require.NoError(t, err)
+
+	vodFS := os.DirFS(tmpDir)
+	return newAssetMgrBld().vodFs(vodFS).build(), tmpDir
 }
