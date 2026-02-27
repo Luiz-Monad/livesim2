@@ -25,23 +25,28 @@ import (
 	m "github.com/Eyevinn/dash-mpd/mpd"
 	"github.com/Eyevinn/mp4ff/bits"
 	"github.com/Eyevinn/mp4ff/mp4"
+	"github.com/wwmoraes/go-rwfs"
 )
 
 type assetMgrBld struct {
 	am assetMgr
 }
 
-func newAssetMgrBld(vodFS fs.FS) *assetMgrBld {
+func newAssetMgrBld() *assetMgrBld {
 	return &assetMgrBld{
 		am: assetMgr{
-			vodFS:  vodFS,
 			assets: make(map[string]*asset),
 		},
 	}
 }
 
-func (b *assetMgrBld) repDir(repDataDir string) *assetMgrBld {
-	b.am.repDataDir = repDataDir
+func (b *assetMgrBld) vodFs(vodFS fs.FS) *assetMgrBld {
+	b.am.vodFS = vodFS
+	return b
+}
+
+func (b *assetMgrBld) repFs(repFS rwfs.FS) *assetMgrBld {
+	b.am.repFS = repFS
 	return b
 }
 
@@ -55,6 +60,10 @@ func (b *assetMgrBld) missingRep(writeMissingRepData bool) *assetMgrBld {
 	return b
 }
 
+func (b *assetMgrBld) concatAssets(concatAssets bool) *assetMgrBld {
+	b.am.concatAssets = concatAssets
+	return b
+}
 
 func (b *assetMgrBld) build() *assetMgr {
 	return &b.am
@@ -62,10 +71,11 @@ func (b *assetMgrBld) build() *assetMgr {
 
 type assetMgr struct {
 	vodFS               fs.FS
+	repFS               rwfs.FS
 	assets              map[string]*asset // the key is the asset path
-	repDataDir          string
 	writeRepData        bool
 	writeMissingRepData bool
+	concatAssets        bool
 }
 
 // findAsset finds the asset by matching the uri with all assets paths.
@@ -206,7 +216,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 	shouldTryLoadJSON := !am.writeRepData
 	jsonLoaded := false
 	if shouldTryLoadJSON {
-		ok, err := rp.loadFromJSON(logger, am.vodFS, am.repDataDir, assetPath)
+		ok, err := rp.loadFromJSON(logger, am.vodFS, am.repFS, assetPath)
 		if ok {
 			logger.Debug("Loaded representation data from JSON")
 			return &rp, err
@@ -228,9 +238,13 @@ func (am *assetMgr) loadRep(logger *slog.Logger, assetPath string, as *m.Adaptat
 	if st.Timescale != nil {
 		rp.MpdTimescale = int(*st.Timescale)
 	}
-	err := rp.addRegExpAndInit(logger, am.vodFS, assetPath)
+	err := rp.addRegExp(logger)
 	if err != nil {
-		return nil, fmt.Errorf("addRegExpAndInit: %w", err)
+		return nil, fmt.Errorf("addRegExp: %w", err)
+	}
+	err = rp.addInit(logger, am.vodFS, assetPath)
+	if err != nil {
+		return nil, fmt.Errorf("addInit: %w", err)
 	}
 	switch {
 	case st.SegmentTimeline != nil && rp.typeURI() == timeURI:
@@ -328,24 +342,17 @@ segLoop:
 	if !shouldWriteJSON {
 		return &rp, nil
 	}
-	err = rp.writeToJSON(logger, am.repDataDir, assetPath)
+	err = rp.writeToJSON(logger, am.repFS, assetPath)
 	return &rp, err
 }
 
 // loadFromJSON reads the representation data from a gzipped or plain JSON file.
-func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, assetPath string) (bool, error) {
-	if repDataDir == "" {
-		return false, nil
-	}
-	repDataPath := path.Join(repDataDir, assetPath, rp.repDataName())
+func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repFS fs.FS, assetPath string) (bool, error) {
+	repDataPath := path.Join(assetPath, rp.repDataName())
 	gzipPath := repDataPath + ".gz"
 	var data []byte
-	_, err := os.Stat(gzipPath)
+	fh, err := repFS.Open(gzipPath)
 	if err == nil {
-		fh, err := os.Open(gzipPath)
-		if err != nil {
-			return true, err
-		}
 		defer fh.Close()
 		gzr, err := gzip.NewReader(fh)
 		if err != nil {
@@ -359,9 +366,9 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, as
 		logger.Info("Read gzipped repdata", "path", gzipPath)
 	}
 	if len(data) == 0 {
-		_, err := os.Stat(repDataPath)
+		fh, err = repFS.Open(repDataPath)
 		if err == nil {
-			data, err = os.ReadFile(repDataPath)
+			data, err = io.ReadAll(fh)
 			if err != nil {
 				return true, err
 			}
@@ -374,14 +381,18 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, as
 	if err := json.Unmarshal(data, &rp); err != nil {
 		return true, err
 	}
-	err = rp.addRegExpAndInit(logger, vodFS, assetPath)
+	err = rp.addRegExp(logger)
 	if err != nil {
-		return true, fmt.Errorf("addRegExpAndInit: %w", err)
+		return true, fmt.Errorf("addRegExp: %w", err)
+	}
+	err = rp.addInit(logger, vodFS, assetPath)
+	if err != nil {
+		return true, fmt.Errorf("addInit: %w", err)
 	}
 	return true, nil
 }
 
-func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, assetPath string) error {
+func (rp *RepData) addRegExp(logger *slog.Logger) error {
 	switch {
 	case strings.Contains(rp.MediaURI, "$Number$"):
 		rexStr := strings.ReplaceAll(rp.MediaURI, "$Number$", `(\d+)`)
@@ -394,7 +405,10 @@ func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, assetPath 
 	default:
 		return fmt.Errorf("neither $Number$, nor $Time$ found in media")
 	}
+	return nil
+}
 
+func (rp *RepData) addInit(logger *slog.Logger, vodFS fs.FS, assetPath string) error {
 	if rp.ContentType != "image" {
 		err := rp.readInit(logger, vodFS, assetPath)
 		if err != nil {
@@ -405,24 +419,15 @@ func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, assetPath 
 }
 
 // writeToJSON writes the representation data to a gzipped JSON file.
-func (rp *RepData) writeToJSON(logger *slog.Logger, repDataDir, assetPath string) error {
+func (rp *RepData) writeToJSON(logger *slog.Logger, repFS rwfs.FS, assetPath string) error {
 	logger = logger.With("rep", rp.ID, "assetPath", assetPath)
-	if repDataDir == "" {
-		return nil
-	}
 	data, err := json.Marshal(rp)
 	if err != nil {
 		return err
 	}
-	outDir := path.Join(repDataDir, assetPath)
-	if dirDoesNotExist(outDir) {
-		err := os.MkdirAll(outDir, 0755)
-		if err != nil {
-			return fmt.Errorf("mkdir %s: %w", outDir, err)
-		}
-	}
-	gzipPath := path.Join(outDir, rp.repDataName()+".gz")
-	fh, err := os.Create(gzipPath)
+	repFS.MkdirAll(assetPath, 0755)
+	gzipPath := path.Join(assetPath, rp.repDataName()+".gz")
+	fh, err := repFS.OpenFile(gzipPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
@@ -439,11 +444,6 @@ func (rp *RepData) writeToJSON(logger *slog.Logger, repDataDir, assetPath string
 
 func (rp *RepData) repDataName() string {
 	return fmt.Sprintf("%s_data.json", rp.ID)
-}
-
-func dirDoesNotExist(dir string) bool {
-	_, err := os.Stat(dir)
-	return os.IsNotExist(err)
 }
 
 // An asset is a directory with at least one MPD file

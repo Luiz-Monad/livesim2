@@ -9,12 +9,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	m "github.com/Eyevinn/dash-mpd/mpd"
 	"github.com/stretchr/testify/require"
+	"github.com/wwmoraes/go-rwfs"
 )
 
 type wantedAssetData struct {
@@ -121,9 +120,6 @@ func TestLoadAsset(t *testing.T) {
 			vodRoot := "testdata"
 			tmpDir := t.TempDir()
 			if tc.segmentEndNr > 0 {
-				if runtime.GOOS == "windows" {
-					return // Skip test on Windows since the tree copy does not work properly
-				}
 				// Copy the the asset part of testdata to a temporary directory and shorten the representations
 				src := path.Join(vodRoot, tc.assetPath)
 				dst := path.Join(tmpDir, tc.assetPath)
@@ -134,9 +130,10 @@ func TestLoadAsset(t *testing.T) {
 				require.NoError(t, err)
 			}
 			vodFS := os.DirFS(vodRoot)
+			repFS := rwfs.OSDirFS(t.TempDir())
 			for _, writeRepData := range []bool{true, false} {
 				// Write repData files the first time, and read them the second
-				am := newAssetMgrBld(vodFS).repDir(tmpDir).writeRep(writeRepData).build()
+				am := newAssetMgrBld().vodFs(vodFS).repFs(repFS).writeRep(writeRepData).build()
 				err := am.discoverAssets(logger)
 				require.NoError(t, err)
 				asset, ok := am.findAsset(tc.assetPath)
@@ -166,10 +163,11 @@ func TestWriteMissingRepData(t *testing.T) {
 	assetPath := "assets/testpic_2s"
 	tmpDir := t.TempDir()
 	vodFS := os.DirFS(vodRoot)
+	repFS := rwfs.OSDirFS(tmpDir)
 
 	// Step 1: Load assets with writeMissingRepData=true (no files exist yet)
 	// This should write RepData files
-	am1 := newAssetMgrBld(vodFS).repDir(tmpDir).missingRep(true).build()
+	am1 := newAssetMgrBld().vodFs(vodFS).repFs(repFS).missingRep(true).build()
 	err := am1.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -191,7 +189,7 @@ func TestWriteMissingRepData(t *testing.T) {
 
 	// Step 4: Load assets again with writeMissingRepData=true
 	// This should only regenerate the missing A48 file, not V300
-	am2 := newAssetMgrBld(vodFS).repDir(tmpDir).missingRep(true).build()
+	am2 := newAssetMgrBld().vodFs(vodFS).repFs(repFS).missingRep(true).build()
 	err = am2.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -335,20 +333,23 @@ func copyDir(srcDir, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return err
 	}
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		var relPath = strings.Replace(path, srcDir, "", 1)
-		if relPath == "" {
+	return filepath.Walk(srcDir, func(walkPath string, info os.FileInfo, err error) error {
+		relPath, err := filepath.Rel(srcDir, walkPath)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
 			return nil
 		}
+		dstPath := filepath.Join(dstDir, relPath)
 		if info.IsDir() {
-			return os.Mkdir(filepath.Join(dstDir, relPath), 0755)
-		} else {
-			var data, err = os.ReadFile(filepath.Join(srcDir, relPath))
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dstDir, relPath), data, 0644)
+			return os.MkdirAll(dstPath, 0755)
 		}
+		data, err := os.ReadFile(walkPath)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, data, 0644)
 	})
 }
 
@@ -382,4 +383,9 @@ func setSegmentEndNr(assetDir string, endNumber uint32) error {
 		}
 	}
 	return nil
+}
+
+func setupAssetMgr() *assetMgr {
+	vodFS := os.DirFS("testdata/assets")
+	return newAssetMgrBld().vodFs(vodFS).build()
 }

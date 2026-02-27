@@ -26,8 +26,7 @@ import (
 )
 
 func TestLiveSegment(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -102,7 +101,7 @@ func TestLiveSegment(t *testing.T) {
 				default: // "TimelineTime":
 					media = strings.ReplaceAll(media, "$NrOrTime$", fmt.Sprintf("%d", mediaTime))
 				}
-				so, err := genLiveSegment(log, vodFS, asset, cfg, media, nowMS, false /*isLast */)
+				so, err := genLiveSegment(log, am.vodFS, asset, cfg, media, nowMS, false /*isLast */)
 				require.NoError(t, err)
 				require.Equal(t, tc.segmentMimeType, so.meta.rep.SegmentType())
 				seg := so.seg
@@ -115,8 +114,7 @@ func TestLiveSegment(t *testing.T) {
 
 // TestAc3Timing checks that the generated segments end within one frame from nominal segment duration.
 func TestAc3Timing(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	log := slog.Default()
 	err := am.discoverAssets(log)
 	require.NoError(t, err)
@@ -128,7 +126,7 @@ func TestAc3Timing(t *testing.T) {
 	for sNr := 0; sNr <= 5; sNr++ {
 		media := "audio_$NrOrTime$.m4s"
 		media = strings.ReplaceAll(media, "$NrOrTime$", fmt.Sprintf("%d", sNr))
-		so, err := genLiveSegment(log, vodFS, asset, cfg, media, nowMS, false /* isLast */)
+		so, err := genLiveSegment(log, am.vodFS, asset, cfg, media, nowMS, false /* isLast */)
 		require.NoError(t, err)
 		bmdt := int(so.seg.Fragments[0].Moof.Traf.Tfdt.BaseMediaDecodeTime())
 		overShoot := bmdt - (2 * sNr * 48000)
@@ -138,8 +136,7 @@ func TestAc3Timing(t *testing.T) {
 }
 
 func TestCheckAudioSegmentTimeAddressing(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	log := slog.Default()
 	err := am.discoverAssets(log)
 	require.NoError(t, err)
@@ -182,7 +179,7 @@ func TestCheckAudioSegmentTimeAddressing(t *testing.T) {
 				default:
 					segMedia = strings.ReplaceAll(c.media, "$NrOrTime$", fmt.Sprintf("%d", mediaTime))
 				}
-				so, err := genLiveSegment(log, vodFS, asset, cfg, segMedia, c.nowMS, false /* isLast */)
+				so, err := genLiveSegment(log, am.vodFS, asset, cfg, segMedia, c.nowMS, false /* isLast */)
 				require.NoError(t, err)
 				trun := so.seg.Fragments[0].Moof.Traf.Trun
 				nrSamples := c.nrSamplesMod[nr%len(c.nrSamplesMod)]
@@ -194,8 +191,7 @@ func TestCheckAudioSegmentTimeAddressing(t *testing.T) {
 }
 
 func TestLiveThumbSegment(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	log := slog.Default()
 	err := am.discoverAssets(log)
 	require.NoError(t, err)
@@ -235,7 +231,7 @@ func TestLiveThumbSegment(t *testing.T) {
 			media := tc.media
 			// Always number, even if MPD is timelinetime
 			media = strings.ReplaceAll(media, "$NrOrTime$", fmt.Sprintf("%d", tc.reqNr))
-			so, err := genLiveSegment(log, vodFS, asset, cfg, media, nowMS, false /* isLast */)
+			so, err := genLiveSegment(log, am.vodFS, asset, cfg, media, nowMS, false /* isLast */)
 			require.NoError(t, err)
 			origNr := tc.reqNr%tc.nrSegs + 1 // one-based
 			require.Equal(t, tc.segmentMimeType, so.meta.rep.SegmentType())
@@ -247,8 +243,7 @@ func TestLiveThumbSegment(t *testing.T) {
 }
 
 func TestWriteChunkedSegment(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	log := slog.Default()
 	err := am.discoverAssets(log)
 	require.NoError(t, err)
@@ -280,7 +275,7 @@ func TestWriteChunkedSegment(t *testing.T) {
 		rr := httptest.NewRecorder()
 		segmentPart := strings.Replace(tc.media, "$NrOrTime$", "10", 1)
 		mediaTime := 80 * tc.mediaTimescale
-		err := writeChunkedSegment(context.Background(), log, rr, cfg, nil, vodFS, asset, segmentPart, nowMS, false /* isLast */)
+		err := writeChunkedSegment(context.Background(), log, rr, cfg, nil, am.vodFS, asset, segmentPart, nowMS, false /* isLast */)
 		require.NoError(t, err)
 		seg := rr.Body.Bytes()
 		sr := bits.NewFixedSliceReader(seg)
@@ -393,8 +388,7 @@ func TestTTMLTimeShifts(t *testing.T) {
 }
 
 func TestStartNumber(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	log := slog.Default()
 	err := am.discoverAssets(log)
 	require.NoError(t, err)
@@ -444,7 +438,7 @@ func TestStartNumber(t *testing.T) {
 		cfg := NewResponseConfig()
 		cfg.StartNr = Ptr(tc.startNr)
 		media := strings.Replace(tc.media, "$NrOrTime$", fmt.Sprintf("%d", (tc.requestNr)), 1)
-		so, err := genLiveSegment(log, vodFS, asset, cfg, media, tc.nowMS, false /* isLast */)
+		so, err := genLiveSegment(log, am.vodFS, asset, cfg, media, tc.nowMS, false /* isLast */)
 		if tc.expectedErr != "" {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.expectedErr)
@@ -461,8 +455,7 @@ func TestStartNumber(t *testing.T) {
 }
 
 func TestLLSegmentAvailability(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	log := slog.Default()
 	err := am.discoverAssets(log)
 	require.NoError(t, err)
@@ -602,7 +595,7 @@ func TestLLSegmentAvailability(t *testing.T) {
 			cfg.StartNr = Ptr(tc.startNr)
 		}
 		media := strings.Replace(tc.media, "$NrOrTime$", fmt.Sprintf("%d", (tc.requestMedia)), 1)
-		so, err := genLiveSegment(log, vodFS, asset, cfg, media, tc.nowMS, false /* isLast */)
+		so, err := genLiveSegment(log, am.vodFS, asset, cfg, media, tc.nowMS, false /* isLast */)
 		if tc.expectedErr != "" {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.expectedErr)
@@ -618,8 +611,7 @@ func TestLLSegmentAvailability(t *testing.T) {
 }
 
 func TestSegmentStatusCodeResponse(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -724,7 +716,7 @@ func TestSegmentStatusCodeResponse(t *testing.T) {
 			media := strings.ReplaceAll(tc.media, "$NrOrTime$", fmt.Sprintf("%d", tc.nrOrTime))
 			rr := httptest.NewRecorder()
 			code, err := writeSegment(context.TODO(), rr, slog.Default(), cfg, nil,
-				vodFS, asset, media, tc.nowMS, nil, false /* isLast */)
+				am.vodFS, asset, media, tc.nowMS, nil, false /* isLast */)
 			require.NoError(t, err)
 			require.Equal(t, tc.expCode, code)
 		})
@@ -733,8 +725,7 @@ func TestSegmentStatusCodeResponse(t *testing.T) {
 
 // TestMpeghAssets tests MPEG-H assets with 1.6s segment duration
 func TestMpeghAssets(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -837,7 +828,7 @@ func TestMpeghAssets(t *testing.T) {
 
 			// Test audio media segment (segment 0)
 			audioMediaPath := fmt.Sprintf("%s_0.m4s", tc.audioRepId)
-			so, err := genLiveSegment(logger, vodFS, asset, cfg, audioMediaPath, nowMS, false)
+			so, err := genLiveSegment(logger, am.vodFS, asset, cfg, audioMediaPath, nowMS, false)
 			require.NoError(t, err, "Failed to generate audio segment")
 			require.NotNil(t, so, "Audio segment output is nil")
 			require.Equal(t, "audio/mp4", so.meta.rep.SegmentType(), "Audio segment wrong type")
@@ -868,7 +859,7 @@ func TestMpeghAssets(t *testing.T) {
 
 			// Test video media segment (segment 0)
 			videoMediaPath := fmt.Sprintf("%s_0.m4s", tc.videoRepId)
-			so, err = genLiveSegment(logger, vodFS, asset, cfg, videoMediaPath, nowMS, false)
+			so, err = genLiveSegment(logger, am.vodFS, asset, cfg, videoMediaPath, nowMS, false)
 			require.NoError(t, err, "Failed to generate video segment")
 			require.NotNil(t, so, "Video segment output is nil")
 			require.Equal(t, "video/mp4", so.meta.rep.SegmentType(), "Video segment wrong type")
@@ -881,14 +872,14 @@ func TestMpeghAssets(t *testing.T) {
 
 			// Test segment 1 to verify timing progression
 			audioMediaPath = fmt.Sprintf("%s_1.m4s", tc.audioRepId)
-			so, err = genLiveSegment(logger, vodFS, asset, cfg, audioMediaPath, nowMS, false)
+			so, err = genLiveSegment(logger, am.vodFS, asset, cfg, audioMediaPath, nowMS, false)
 			require.NoError(t, err, "Failed to generate audio segment 1")
 			baseDecodeTime = so.seg.Fragments[0].Moof.Traf.Tfdt.BaseMediaDecodeTime()
 			expectedAudioTime := 76800 // 1.6s * 48000
 			require.Equal(t, expectedAudioTime, int(baseDecodeTime), "Second audio segment timing incorrect")
 
 			videoMediaPath = fmt.Sprintf("%s_1.m4s", tc.videoRepId)
-			so, err = genLiveSegment(logger, vodFS, asset, cfg, videoMediaPath, nowMS, false)
+			so, err = genLiveSegment(logger, am.vodFS, asset, cfg, videoMediaPath, nowMS, false)
 			require.NoError(t, err, "Failed to generate video segment 1")
 			baseDecodeTime = so.seg.Fragments[0].Moof.Traf.Tfdt.BaseMediaDecodeTime()
 			expectedVideoTime := 80 // 1.6s * 50
@@ -901,8 +892,7 @@ func TestMpeghAssets(t *testing.T) {
 
 func TestMehdBoxRemovedFromInitSegment(t *testing.T) {
 	var drmCfg *drm.DrmConfig = nil
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -921,8 +911,7 @@ func TestMehdBoxRemovedFromInitSegment(t *testing.T) {
 }
 
 func TestWriteSubSegment(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	err := logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
 	log := slog.Default()
@@ -1012,13 +1001,13 @@ func TestWriteSubSegment(t *testing.T) {
 			if tc.shouldPanic {
 				require.Panics(t, func() {
 					// This call is expected to panic
-					_ = writeSubSegment(ctx, log, rr, cfg, nil, vodFS, asset, tc.media, tc.subSegmentPart, tc.nowMS, false /* isLast */)
+					_ = writeSubSegment(ctx, log, rr, cfg, nil, am.vodFS, asset, tc.media, tc.subSegmentPart, tc.nowMS, false /* isLast */)
 				})
 
 				return
 			}
 
-			err := writeSubSegment(ctx, log, rr, cfg, nil, vodFS, asset, tc.media, tc.subSegmentPart, tc.nowMS, false /* isLast */)
+			err := writeSubSegment(ctx, log, rr, cfg, nil, am.vodFS, asset, tc.media, tc.subSegmentPart, tc.nowMS, false /* isLast */)
 
 			if tc.expErr != "" {
 				require.Error(t, err)
@@ -1042,8 +1031,7 @@ func TestWriteSubSegment(t *testing.T) {
 }
 
 func TestWriteSubSegmentWithChunkDuration(t *testing.T) {
-	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgrBld(vodFS).build()
+	am := setupAssetMgr()
 	err := logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
 	log := slog.Default()
@@ -1107,7 +1095,7 @@ func TestWriteSubSegmentWithChunkDuration(t *testing.T) {
 			rr := httptest.NewRecorder()
 			ctx := context.Background()
 
-			err := writeSubSegment(ctx, slog.Default(), rr, cfg, nil, vodFS, asset, tc.media, tc.subSegmentPart, tc.nowMS, false)
+			err := writeSubSegment(ctx, slog.Default(), rr, cfg, nil, am.vodFS, asset, tc.media, tc.subSegmentPart, tc.nowMS, false)
 
 			if tc.expErr != "" {
 				require.Error(t, err)

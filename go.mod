@@ -16,6 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.21.1
 	github.com/spf13/pflag v1.0.6
 	github.com/stretchr/testify v1.10.0
+	github.com/wwmoraes/go-rwfs v0.0.0-20231101192853-2f37ed32d908
 )
 
 require (
@@ -53,3 +54,5 @@ require (
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/wwmoraes/go-rwfs v0.0.0-20231101192853-2f37ed32d908 => github.com/Luiz-Monad/go-rwfs v0.0.1
