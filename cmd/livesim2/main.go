@@ -91,7 +91,7 @@ func run() (exitCode int) {
 	}()
 
 	<-stopServer // Wait here for stop signal
-	slog.Default().Info("Server  stopped")
+	slog.Default().Info("Server stopped")
 
 	return exitCode
 }

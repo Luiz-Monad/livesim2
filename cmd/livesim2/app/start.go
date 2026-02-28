@@ -27,11 +27,11 @@ func SetupServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 	logger := slog.Default()
 
 	r := chi.NewRouter()
+	r.Use(stripPrefixMiddleware)
 	r.Use(middleware.RequestID)
 	r.Use(logging.SlogMiddleWare(logger))
 	r.Use(middleware.Recoverer)
-	prometheusMiddleWare := NewPrometheusMiddleware()
-	r.Use(prometheusMiddleWare)
+	r.Use(NewPrometheusMiddleware())
 	r.Use(addVersionAndCORSHeaders)
 
 	// Set a timeout value on the request context (ctx), that will signal
