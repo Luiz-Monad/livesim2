@@ -55,6 +55,10 @@ func (b *assetMgrBld) missingRep(writeMissingRepData bool) *assetMgrBld {
 	return b
 }
 
+func (b *assetMgrBld) concatAssets(concatAssets bool) *assetMgrBld {
+	b.am.concatAssets = concatAssets
+	return b
+}
 
 func (b *assetMgrBld) build() *assetMgr {
 	return &b.am
@@ -66,6 +70,7 @@ type assetMgr struct {
 	repDataDir          string
 	writeRepData        bool
 	writeMissingRepData bool
+	concatAssets        bool
 }
 
 // findAsset finds the asset by matching the uri with all assets paths.
@@ -166,10 +171,6 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 			if rep.SegmentTemplate != nil {
 				return fmt.Errorf("segmentTemplate on Representation level. Only supported on AdaptationSet level")
 			}
-			if _, ok := asset.Reps[rep.Id]; ok {
-				logger.Debug("Representation already loaded", "rep", rep.Id)
-				continue
-			}
 			r, err := am.loadRep(logger, assetPath, as, rep)
 			if err != nil {
 				return fmt.Errorf("getRep: %w", err)
@@ -177,7 +178,22 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 			if len(r.Segments) == 0 {
 				return fmt.Errorf("rep %s of type %s has no segments", rep.Id, r.ContentType)
 			}
-			asset.Reps[r.ID] = r
+			if existingRep, ok := asset.Reps[rep.Id]; ok {
+				if am.concatAssets {
+					logger.Debug("Concatenating representation", "rep", rep.Id)
+					existingDur := existingRep.duration()
+					for i := range r.Segments {
+						r.Segments[i].StartTime += uint64(existingDur)
+						r.Segments[i].EndTime += uint64(existingDur)
+					}
+					existingRep.Segments = append(existingRep.Segments, r.Segments...)
+				} else {
+					logger.Debug("Representation already loaded", "rep", rep.Id)
+					continue
+				}
+			} else {
+				asset.Reps[r.ID] = r
+			}
 			avgSegDurMS := int(math.Round(float64(r.duration()*1000.0)) / float64((r.MediaTimescale * len(r.Segments))))
 			if asset.SegmentDurMS == 0 || avgSegDurMS < asset.SegmentDurMS {
 				asset.SegmentDurMS = avgSegDurMS

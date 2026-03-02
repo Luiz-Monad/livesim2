@@ -72,6 +72,7 @@ func SetupServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 			repDir(cfg.RepDataRoot).
 			writeRep(cfg.WriteRepData).
 			missingRep(cfg.WriteMissingRepData).
+			concatAssets(cfg.ConcatAssets).
 			build(),
 		reqLimiter: reqLimiter,
 	}

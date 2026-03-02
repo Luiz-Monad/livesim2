@@ -383,3 +383,44 @@ func setSegmentEndNr(assetDir string, endNumber uint32) error {
 	}
 	return nil
 }
+
+func TestConcatAssets(t *testing.T) {
+	logger := slog.Default()
+	testCases := []struct {
+		desc         string
+		assetPath    string
+		concatAssets bool
+		expectedSegs int
+		expectedLoop int
+	}{
+		{
+			desc:         "testpic_2s without concat - should skip duplicate rep",
+			assetPath:    "assets/testpic_2s",
+			concatAssets: false,
+			expectedSegs: 4,
+			expectedLoop: 8000,
+		},
+		{
+			desc:         "testpic_2s with concat - should concatenate segments from all MPDs",
+			assetPath:    "assets/testpic_2s",
+			concatAssets: true,
+			expectedSegs: 16,
+			expectedLoop: 32000,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			vodFS := os.DirFS("testdata")
+			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
+			err := am.discoverAssets(logger)
+			require.NoError(t, err)
+			asset, ok := am.findAsset(tc.assetPath)
+			require.True(t, ok, "asset %s not found", tc.assetPath)
+			require.NotNil(t, asset)
+			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
+			rep, ok := asset.Reps["V300"]
+			require.True(t, ok, "rep V300 not found")
+			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
+		})
+	}
+}
