@@ -1147,9 +1147,10 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 	cases := []struct {
 		desc  string
 		media string
+		segs  []int
 	}{
-		{desc: "video", media: "video25fps/$NrOrTime$.m4s"},
-		{desc: "audio", media: "aac/$NrOrTime$.m4s"},
+		{desc: "video", media: "video25fps/$NrOrTime$.m4s", segs: []int{40, 44}},
+		{desc: "audio", media: "aac/$NrOrTime$.m4s", segs: []int{40, 44}},
 	}
 
 	for _, tc := range cases {
@@ -1169,7 +1170,7 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 					require.True(t, ok)
 					mediaTimescale := rep.MediaTimescale
 
-					for _, nr := range []int{40, 44} {
+					for _, nr := range tc.segs {
 						media := tc.media
 						mediaTime := nr * 2 * mediaTimescale
 						switch mpdType {
@@ -1257,6 +1258,114 @@ func TestConcatEditListLiveSegment(t *testing.T) {
 			so, err := genLiveSegment(logger, vodFS, asset, cfg, media, nowMS, false)
 			require.NoError(t, err, "genLiveSegment failed for time=%d media=%s", tc.mediaTime, media)
 			require.NotNil(t, so.seg, "segment should not be nil for time=%d", tc.mediaTime)
+		})
+	}
+}
+
+func TestSetHeaders(t *testing.T) {
+	logger := slog.Default()
+
+	cases := []struct {
+		name               string
+		segs               []int
+		dataOverride       []byte
+		expectedContentLen string
+		segPathFlag        bool
+	}{
+		{
+			name:        "returnSegPath true",
+			segs:        []int{0, 4, 8},
+			segPathFlag: true,
+		},
+		{
+			name:        "returnSegPath false",
+			segs:        []int{0},
+			segPathFlag: false,
+		},
+		{
+			name:        "nil config",
+			segs:        []int{0},
+			segPathFlag: false,
+		},
+		{
+			name:        "empty path",
+			segs:        []int{0},
+			segPathFlag: true,
+		},
+		{
+			name:               "with data",
+			segs:               []int{0},
+			dataOverride:       []byte("test segment data"),
+			expectedContentLen: "17",
+			segPathFlag:        true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, nr := range tc.segs {
+				t.Run(fmt.Sprintf("nr=%d", nr), func(t *testing.T) {
+					am := setupAssetMgrConcat(t)
+					err := am.discoverAssets(logger)
+					require.NoError(t, err)
+
+					asset, ok := am.findAsset("dash")
+					require.True(t, ok)
+
+					cfg := NewResponseConfig()
+					cfg.SegTimelineMode = SegTimelineModeNr
+					cfg.SegPathFlag = tc.segPathFlag
+
+					segmentDurMS := 2000
+					nowMS := (nr + 1) * segmentDurMS
+
+					media := fmt.Sprintf("video25fps/%d.m4s", nr)
+
+					so, err := genLiveSegment(logger, am.vodFS, asset, cfg, media, nowMS, false)
+					require.NoError(t, err)
+
+					segPath := so.path
+					if tc.name == "empty path" {
+						segPath = ""
+					}
+
+					segData := so.data
+					if tc.dataOverride != nil {
+						segData = tc.dataOverride
+					}
+
+					rr := httptest.NewRecorder()
+					sh := segHeader{
+						rep:  so.meta.rep,
+						data: segData,
+						path: segPath,
+					}
+
+					testCfg := cfg
+					if tc.name == "nil config" {
+						testCfg = nil
+					}
+
+					err = setHeaders(rr, sh, testCfg)
+					require.NoError(t, err)
+
+					assert.Equal(t, "video/mp4", rr.Header().Get("Content-Type"))
+
+					if tc.expectedContentLen != "" {
+						assert.Equal(t, tc.expectedContentLen, rr.Header().Get("Content-Length"))
+					} else {
+						assert.Empty(t, rr.Header().Get("Content-Length"))
+					}
+
+					if tc.segPathFlag && segPath != "" {
+						trackIdx := (nr / 4) % 3
+						expectedPath := fmt.Sprintf("dash/track%d", trackIdx+1)
+						assert.Equal(t, expectedPath, rr.Header().Get("X-SegPath"))
+					} else {
+						assert.Empty(t, rr.Header().Get("X-SegPath"))
+					}
+				})
+			}
 		})
 	}
 }

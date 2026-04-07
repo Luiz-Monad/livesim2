@@ -7,6 +7,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -338,4 +339,71 @@ func TestCalcSubSegmentPart(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSegPathHeader(t *testing.T) {
+	cfg := ServerConfig{
+		VodRoot:   "testdata/assets",
+		TimeoutS:  0,
+		LogFormat: logging.LogDiscard,
+	}
+	err := logging.InitSlog(cfg.LogLevel, cfg.LogFormat)
+	require.NoError(t, err)
+	server, err := SetupServer(context.Background(), &cfg)
+	require.NoError(t, err)
+	ts := httptest.NewServer(server.Router)
+	defer ts.Close()
+
+	testCases := []struct {
+		desc          string
+		url           string
+		requestHeader map[string]string
+		expectSegPath bool
+	}{
+		{
+			desc:          "no X-ResponseConfig header - no response header",
+			url:           "/livesim2/testpic_2s/V300/40.m4s?nowMS=100000",
+			requestHeader: nil,
+			expectSegPath: false,
+		},
+		{
+			desc:          "X-ResponseConfig header set - response header present",
+			url:           "/livesim2/testpic_2s/V300/40.m4s?nowMS=100000",
+			requestHeader: map[string]string{"X-ResponseConfig": "true"},
+			expectSegPath: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			resp, _ := testFullRequestWithHeaders(t, ts, "GET", tc.url, tc.requestHeader)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			segPath := resp.Header.Get("X-SegPath")
+			if tc.expectSegPath {
+				require.NotEmpty(t, segPath, "X-SegPath header should be present")
+				require.Contains(t, segPath, "testpic_2s", "X-SegPath should contain asset path")
+			} else {
+				require.Empty(t, segPath, "X-SegPath header should not be present")
+			}
+		})
+	}
+}
+
+func testFullRequestWithHeaders(t *testing.T, ts *httptest.Server, method, path string, headers map[string]string) (*http.Response, []byte) {
+	req, err := http.NewRequest(method, ts.URL+path, nil)
+	require.NoError(t, err)
+
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	return resp, respBody
 }

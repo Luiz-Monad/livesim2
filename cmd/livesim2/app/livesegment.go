@@ -358,9 +358,7 @@ func writeInitSegment(log *slog.Logger, w http.ResponseWriter, cfg *ResponseConf
 	if !match.isInit {
 		return false, nil
 	}
-
-	w.Header().Set("Content-Length", strconv.Itoa(len(match.init)))
-	w.Header().Set("Content-Type", match.rep.SegmentType())
+	setHeaders(w, match.header(), cfg)
 	_, err = w.Write(match.init)
 	if err != nil {
 		log.Error("writing response", "error", err)
@@ -428,7 +426,6 @@ func writeLiveSegment(log *slog.Logger, w http.ResponseWriter, cfg *ResponseConf
 	if err != nil {
 		return fmt.Errorf("convertToLive: %w", err)
 	}
-	var data []byte
 	if outSeg.seg != nil {
 		if cfg.DRM != "" {
 			frags := outSeg.seg.Fragments
@@ -443,12 +440,10 @@ func writeLiveSegment(log *slog.Logger, w http.ResponseWriter, cfg *ResponseConf
 			log.Error("write live segment response", "error", err)
 			return err
 		}
-		data = sw.Bytes()
-	} else {
-		data = outSeg.data
+		outSeg.data = sw.Bytes()
 	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.Header().Set("Content-Type", outSeg.meta.rep.SegmentType())
+	data := outSeg.data
+	setHeaders(w, outSeg.header(), cfg)
 	nrWritten := 0
 	for {
 		n, err := w.Write(data[nrWritten:])
@@ -510,6 +505,7 @@ type segOut struct {
 	seg  *mp4.MediaSegment
 	data []byte // Mainly used for image out
 	meta segMeta
+	path string // segment asset path
 }
 
 // findRepAndSegmentID finds the rep and segment ID (nr or time) for a given cfg and live segment request.
@@ -569,6 +565,7 @@ func createOutSeg(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart string
 	}
 	segBasePath, offsetStart := rep.getSegmentBasePathAndOffset(so.meta.origTime)
 	segPath := path.Join(segBasePath, replaceTimeAndNr(rep.MediaURI, offsetStart, so.meta.origNr))
+	so.path = segBasePath
 	so.data, err = fs.ReadFile(vodFS, segPath)
 	if err != nil {
 		return so, fmt.Errorf("read segment: %w", err)
@@ -629,7 +626,7 @@ func createAudioSegment(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart 
 		uint64(refRep.duration()),
 		refTimescale, rep)
 	var so segOut
-	so.seg, err = createAudioSeg(vodFS, recipe)
+	so.seg, err = createAudioSeg(vodFS, &so.path, recipe)
 	if err != nil {
 		return so, fmt.Errorf("createAudioSeg: %w", err)
 	}
@@ -728,15 +725,35 @@ func prepareChunks(log *slog.Logger, vodFS fs.FS, a *asset, cfg *ResponseConfig,
 	return so, chunks, nil
 }
 
-func setHeaders(w http.ResponseWriter, so segOut, segmentPart string) error {
-	w.Header().Set("Content-Type", so.meta.rep.SegmentType())
-	if isImage(segmentPart) {
-		w.Header().Set("Content-Length", strconv.Itoa(len(so.data)))
-		_, err := w.Write(so.data)
-		if err != nil {
-			return fmt.Errorf("could not write image segment: %w", err)
-		}
-		return nil
+type segHeader struct {
+	rep  *RepData
+	data []byte
+	path string
+}
+
+func (so *segOut) header() segHeader {
+	return segHeader{
+		rep:  so.meta.rep,
+		data: so.data,
+		path: so.path,
+	}
+}
+
+func (im *initMatch) header() segHeader {
+	return segHeader{
+		rep:  im.rep,
+		data: im.init,
+		path: "",
+	}
+}
+
+func setHeaders(w http.ResponseWriter, sh segHeader, cfg *ResponseConfig) error {
+	w.Header().Set("Content-Type", sh.rep.SegmentType())
+	if sh.data != nil {
+		w.Header().Set("Content-Length", strconv.Itoa(len(sh.data)))
+	}
+	if cfg != nil && cfg.SegPathFlag && sh.path != "" {
+		w.Header().Set("X-SegPath", sh.path)
 	}
 	return nil
 }
@@ -755,12 +772,15 @@ func writeChunkedSegment(ctx context.Context, log *slog.Logger, w http.ResponseW
 		return err
 	}
 
-	err = setHeaders(w, so, segmentPart)
-	if err != nil {
+	isImage, err := writeImageSegment(w, so, segmentPart, cfg)
+	if isImage {
 		return err
 	}
-	if isImage(segmentPart) {
-		return nil
+
+	so.data = nil // no content-length
+	err = setHeaders(w, so.header(), cfg)
+	if err != nil {
+		return err
 	}
 	rep := so.meta.rep
 
@@ -819,12 +839,15 @@ func writeSubSegment(ctx context.Context, log *slog.Logger, w http.ResponseWrite
 		return err
 	}
 
-	err = setHeaders(w, so, segmentPart)
-	if err != nil {
+	isImage, err := writeImageSegment(w, so, segmentPart, cfg)
+	if isImage {
 		return err
 	}
-	if isImage(segmentPart) {
-		return nil
+
+	so.data = nil // no content-length
+	err = setHeaders(w, so.header(), cfg)
+	if err != nil {
+		return err
 	}
 	rep := so.meta.rep
 
@@ -948,6 +971,21 @@ func writeChunk(w http.ResponseWriter, chk chunk) error {
 	flusher := w.(http.Flusher)
 	flusher.Flush()
 	return nil
+}
+
+func writeImageSegment(w http.ResponseWriter, so segOut, segmentPart string, cfg *ResponseConfig) (bool, error) {
+	if !isImage(segmentPart) {
+		return false, nil
+	}
+	err := setHeaders(w, so.header(), cfg)
+	if err != nil {
+		return true, err
+	}
+	_, err = w.Write(so.data)
+	if err != nil {
+		return true, fmt.Errorf("could not write image segment: %w", err)
+	}
+	return true, nil
 }
 
 // Ptr returns a pointer to a value of any type

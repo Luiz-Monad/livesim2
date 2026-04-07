@@ -52,8 +52,6 @@ func TestServer(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "healthz")
 }
 
-// Auxiliary functions for handler_*_test ================
-
 func testRequest(t *testing.T, ts *httptest.Server, method, path string, reqBody io.Reader) (*http.Response, []byte) {
 	req, err := http.NewRequest(method, ts.URL+path, reqBody)
 	require.NoError(t, err)

@@ -66,7 +66,7 @@ func (s sampleItvl) dur(sampleDur uint64) uint64 {
 }
 
 // createAudioSeg takes a recipe and creates an output audio segment with the right samples.
-func createAudioSeg(vodFS fs.FS, rec audioRecipe) (*mp4.MediaSegment, error) {
+func createAudioSeg(vodFS fs.FS, basePath *string, rec audioRecipe) (*mp4.MediaSegment, error) {
 	rep := rec.rep
 	sampleDur := uint64(*rep.ConstantSampleDuration)
 	var startSampleIdx, endSampleIdx uint32
@@ -145,6 +145,7 @@ func createAudioSeg(vodFS fs.FS, rec audioRecipe) (*mp4.MediaSegment, error) {
 		// For concatenated assets we also need to map back from the concatenated
 		// timeline to the track timeline.
 		segBasePath, segmentTime := rep.getSegmentBasePathAndOffset(s.StartTime)
+		*basePath = segBasePath
 
 		// For audio segments with editListOffset, we need to map back to the original
 		// segment file names. The calculated StartTime doesn't match the actual file names.
