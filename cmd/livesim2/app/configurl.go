@@ -137,7 +137,7 @@ type ResponseConfig struct {
 	SSRFlag                      bool              `json:"SSRFlag,omitempty"`
 	SSRAS                        string            `json:"SSRAS,omitempty"`
 	ChunkDurSSR                  string            `json:"ChunkDurSSR,omitempty"`
-	SegPathFlag                  bool              `json:"SegPathFlag,omitempty"`
+	SegMetaFlag                  bool              `json:"SegMetaFlag,omitempty"`
 }
 
 // SegStatusCodes configures regular extraordinary segment response codes
@@ -447,8 +447,8 @@ cfgLoop:
 			cfg.SSRFlag = true
 		case "chunkdurssr":
 			cfg.ChunkDurSSR = val
-		case "returnsegpath":
-			cfg.SegPathFlag = true
+		case "returnsegmeta":
+			cfg.SegMetaFlag = true
 		default:
 			contentStartIdx = i
 			break cfgLoop
@@ -533,8 +533,8 @@ func ms2S(ms int) int {
 
 func (c *ResponseConfig) SetResponseFromHeader(r *http.Request) {
 	for _, v := range r.Header.Values("X-ResponseConfig") {
-		if v == "SegPathFlag" {
-			c.SegPathFlag = true
+		if v == "SegMetaFlag" {
+			c.SegMetaFlag = true
 		}
 	}
 }

@@ -358,7 +358,7 @@ func writeInitSegment(log *slog.Logger, w http.ResponseWriter, cfg *ResponseConf
 	if !match.isInit {
 		return false, nil
 	}
-	setHeaders(w, match.header(), cfg)
+	setHeaders(w, match.header(), cfg, a)
 	_, err = w.Write(match.init)
 	if err != nil {
 		log.Error("writing response", "error", err)
@@ -443,7 +443,7 @@ func writeLiveSegment(log *slog.Logger, w http.ResponseWriter, cfg *ResponseConf
 		outSeg.data = sw.Bytes()
 	}
 	data := outSeg.data
-	setHeaders(w, outSeg.header(), cfg)
+	setHeaders(w, outSeg.header(), cfg, a)
 	nrWritten := 0
 	for {
 		n, err := w.Write(data[nrWritten:])
@@ -726,9 +726,11 @@ func prepareChunks(log *slog.Logger, vodFS fs.FS, a *asset, cfg *ResponseConfig,
 }
 
 type segHeader struct {
-	rep  *RepData
-	data []byte
-	path string
+	rep   *RepData
+	data  []byte
+	path  string
+	meta  *segMeta
+	asset *asset
 }
 
 func (so *segOut) header() segHeader {
@@ -736,6 +738,7 @@ func (so *segOut) header() segHeader {
 		rep:  so.meta.rep,
 		data: so.data,
 		path: so.path,
+		meta: &so.meta,
 	}
 }
 
@@ -744,18 +747,42 @@ func (im *initMatch) header() segHeader {
 		rep:  im.rep,
 		data: im.init,
 		path: "",
+		meta: nil,
 	}
 }
 
-func setHeaders(w http.ResponseWriter, sh segHeader, cfg *ResponseConfig) error {
+func setHeaders(w http.ResponseWriter, sh segHeader, cfg *ResponseConfig, a *asset) error {
 	w.Header().Set("Content-Type", sh.rep.SegmentType())
 	if sh.data != nil {
 		w.Header().Set("Content-Length", strconv.Itoa(len(sh.data)))
 	}
-	if cfg != nil && cfg.SegPathFlag && sh.path != "" {
-		w.Header().Set("X-SegPath", sh.path)
+	if cfg != nil && cfg.SegMetaFlag && sh.meta != nil && sh.path != "" && a != nil {
+		setSegMetaHeaders(w, sh.meta, sh.path, a)
 	}
 	return nil
+}
+
+func setSegMetaHeaders(w http.ResponseWriter, meta *segMeta, path string, a *asset) {
+	loopDurMS := a.LoopDurMS
+	loopDurTimescale := uint64(loopDurMS) * uint64(meta.timescale) / 1000
+
+	trackTotalMS := uint64(meta.newDur) * 1000 / uint64(meta.timescale)
+	trackElapsedMS := uint64(meta.newTime%loopDurTimescale) * 1000 / uint64(meta.timescale)
+
+	assetTotalMS := loopDurMS
+	assetElapsedMS := int(meta.newTime*1000/uint64(meta.timescale)) % assetTotalMS
+
+	w.Header().Set("X-Segmeta-Path", path)
+	w.Header().Set("X-Segmeta-Track-Total", formatDurationMS(trackTotalMS))
+	w.Header().Set("X-Segmeta-Track-Elapsed", formatDurationMS(trackElapsedMS))
+	w.Header().Set("X-Segmeta-Asset-Total", formatDurationMS(uint64(assetTotalMS)))
+	w.Header().Set("X-Segmeta-Asset-Elapsed", formatDurationMS(uint64(assetElapsedMS)))
+}
+
+func formatDurationMS(ms uint64) string {
+	seconds := ms / 1000
+	milliseconds := ms % 1000
+	return fmt.Sprintf("%d.%03ds", seconds, milliseconds)
 }
 
 // writeChunkedSegment splits a segment into chunks and send them as they become available timewise.
@@ -772,13 +799,13 @@ func writeChunkedSegment(ctx context.Context, log *slog.Logger, w http.ResponseW
 		return err
 	}
 
-	isImage, err := writeImageSegment(w, so, segmentPart, cfg)
+	isImage, err := writeImageSegment(w, so, segmentPart, cfg, a)
 	if isImage {
 		return err
 	}
 
 	so.data = nil // no content-length
-	err = setHeaders(w, so.header(), cfg)
+	err = setHeaders(w, so.header(), cfg, a)
 	if err != nil {
 		return err
 	}
@@ -839,13 +866,13 @@ func writeSubSegment(ctx context.Context, log *slog.Logger, w http.ResponseWrite
 		return err
 	}
 
-	isImage, err := writeImageSegment(w, so, segmentPart, cfg)
+	isImage, err := writeImageSegment(w, so, segmentPart, cfg, a)
 	if isImage {
 		return err
 	}
 
 	so.data = nil // no content-length
-	err = setHeaders(w, so.header(), cfg)
+	err = setHeaders(w, so.header(), cfg, a)
 	if err != nil {
 		return err
 	}
@@ -973,11 +1000,11 @@ func writeChunk(w http.ResponseWriter, chk chunk) error {
 	return nil
 }
 
-func writeImageSegment(w http.ResponseWriter, so segOut, segmentPart string, cfg *ResponseConfig) (bool, error) {
+func writeImageSegment(w http.ResponseWriter, so segOut, segmentPart string, cfg *ResponseConfig, a *asset) (bool, error) {
 	if !isImage(segmentPart) {
 		return false, nil
 	}
-	err := setHeaders(w, so.header(), cfg)
+	err := setHeaders(w, so.header(), cfg, a)
 	if err != nil {
 		return true, err
 	}

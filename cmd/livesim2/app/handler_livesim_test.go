@@ -341,7 +341,7 @@ func TestCalcSubSegmentPart(t *testing.T) {
 	}
 }
 
-func TestSegPathHeader(t *testing.T) {
+func TestSegMetaHeader(t *testing.T) {
 	cfg := ServerConfig{
 		VodRoot:   "testdata/assets",
 		TimeoutS:  0,
@@ -358,19 +358,19 @@ func TestSegPathHeader(t *testing.T) {
 		desc          string
 		url           string
 		requestHeader map[string]string
-		expectSegPath bool
+		expectSegMeta bool
 	}{
 		{
 			desc:          "no X-ResponseConfig header - no response header",
 			url:           "/livesim2/testpic_2s/V300/40.m4s?nowMS=100000",
 			requestHeader: nil,
-			expectSegPath: false,
+			expectSegMeta: false,
 		},
 		{
 			desc:          "X-ResponseConfig header set - response header present",
 			url:           "/livesim2/testpic_2s/V300/40.m4s?nowMS=100000",
-			requestHeader: map[string]string{"X-ResponseConfig": "true"},
-			expectSegPath: true,
+			requestHeader: map[string]string{"X-ResponseConfig": "SegMetaFlag"},
+			expectSegMeta: true,
 		},
 	}
 
@@ -379,12 +379,12 @@ func TestSegPathHeader(t *testing.T) {
 			resp, _ := testFullRequestWithHeaders(t, ts, "GET", tc.url, tc.requestHeader)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
-			segPath := resp.Header.Get("X-SegPath")
-			if tc.expectSegPath {
-				require.NotEmpty(t, segPath, "X-SegPath header should be present")
-				require.Contains(t, segPath, "testpic_2s", "X-SegPath should contain asset path")
+			segPath := resp.Header.Get("X-Segmeta-Path")
+			if tc.expectSegMeta {
+				require.NotEmpty(t, segPath, "X-Segmeta-Path header should be present")
+				require.Contains(t, segPath, "testpic_2s", "X-Segmeta-Path should contain asset path")
 			} else {
-				require.Empty(t, segPath, "X-SegPath header should not be present")
+				require.Empty(t, segPath, "X-Segmeta-Path header should not be present")
 			}
 		})
 	}

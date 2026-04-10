@@ -1265,45 +1265,97 @@ func TestConcatEditListLiveSegment(t *testing.T) {
 func TestSetHeaders(t *testing.T) {
 	logger := slog.Default()
 
+	type expectedMeta struct {
+		path         string
+		trackTotal   string
+		trackElapsed string
+		assetTotal   string
+		assetElapsed string
+	}
+
+	segDurS := 2.0
+	assetTotalS := 24.0
+	trackNames := []string{"track1", "track2", "track3"}
+	segsPerTrack := int(assetTotalS / segDurS / float64(len(trackNames)))
+
+	makeMeta := func(nr int) expectedMeta {
+		elapsed := float64(nr) * segDurS
+		track := trackNames[nr/segsPerTrack]
+		return expectedMeta{
+			path:         fmt.Sprintf("dash/%s", track),
+			trackTotal:   fmt.Sprintf("%.3fs", segDurS),
+			trackElapsed: fmt.Sprintf("%.3fs", elapsed),
+			assetTotal:   fmt.Sprintf("%.3fs", assetTotalS),
+			assetElapsed: fmt.Sprintf("%.3fs", elapsed),
+		}
+	}
+
+	metasFor := func(nrs []int) []expectedMeta {
+		metas := make([]expectedMeta, len(nrs))
+		for i, nr := range nrs {
+			metas[i] = makeMeta(nr)
+		}
+		return metas
+	}
+
+	firstSegs := []int{0, 4, 8}
+	lastSegs := []int{3, 7, 11}
+	secondSegs := []int{1, 5, 9}
+
 	cases := []struct {
 		name               string
 		segs               []int
 		dataOverride       []byte
 		expectedContentLen string
-		segPathFlag        bool
+		segMetaFlag        bool
+		expectedMeta       []expectedMeta
 	}{
 		{
-			name:        "returnSegPath true",
-			segs:        []int{0, 4, 8},
-			segPathFlag: true,
+			name:         "SegMetaFlag true - first seg of each track",
+			segs:         firstSegs,
+			segMetaFlag:  true,
+			expectedMeta: metasFor(firstSegs),
 		},
 		{
-			name:        "returnSegPath false",
-			segs:        []int{0},
-			segPathFlag: false,
+			name:         "SegMetaFlag true - last seg of each track",
+			segs:         lastSegs,
+			segMetaFlag:  true,
+			expectedMeta: metasFor(lastSegs),
 		},
 		{
-			name:        "nil config",
+			name:         "SegMetaFlag true - second seg of each track",
+			segs:         secondSegs,
+			segMetaFlag:  true,
+			expectedMeta: metasFor(secondSegs),
+		},
+		{
+			name:        "SegMetaFlag false",
 			segs:        []int{0},
-			segPathFlag: false,
+			segMetaFlag: false,
+		},
+		{
+			name: "nil config",
+			segs: []int{0},
 		},
 		{
 			name:        "empty path",
 			segs:        []int{0},
-			segPathFlag: true,
+			segMetaFlag: true,
+			expectedMeta: []expectedMeta{
+				{"", "", "", "", ""},
+			},
 		},
 		{
 			name:               "with data",
 			segs:               []int{0},
 			dataOverride:       []byte("test segment data"),
 			expectedContentLen: "17",
-			segPathFlag:        true,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, nr := range tc.segs {
+			for ix, nr := range tc.segs {
 				t.Run(fmt.Sprintf("nr=%d", nr), func(t *testing.T) {
 					am := setupAssetMgrConcat(t)
 					err := am.discoverAssets(logger)
@@ -1314,10 +1366,9 @@ func TestSetHeaders(t *testing.T) {
 
 					cfg := NewResponseConfig()
 					cfg.SegTimelineMode = SegTimelineModeNr
-					cfg.SegPathFlag = tc.segPathFlag
+					cfg.SegMetaFlag = tc.segMetaFlag
 
-					segmentDurMS := 2000
-					nowMS := (nr + 1) * segmentDurMS
+					nowMS := int((float64(nr) + 1) * segDurS * 1000)
 
 					media := fmt.Sprintf("video25fps/%d.m4s", nr)
 
@@ -1339,6 +1390,7 @@ func TestSetHeaders(t *testing.T) {
 						rep:  so.meta.rep,
 						data: segData,
 						path: segPath,
+						meta: &so.meta,
 					}
 
 					testCfg := cfg
@@ -1346,7 +1398,7 @@ func TestSetHeaders(t *testing.T) {
 						testCfg = nil
 					}
 
-					err = setHeaders(rr, sh, testCfg)
+					err = setHeaders(rr, sh, testCfg, asset)
 					require.NoError(t, err)
 
 					assert.Equal(t, "video/mp4", rr.Header().Get("Content-Type"))
@@ -1357,12 +1409,19 @@ func TestSetHeaders(t *testing.T) {
 						assert.Empty(t, rr.Header().Get("Content-Length"))
 					}
 
-					if tc.segPathFlag && segPath != "" {
-						trackIdx := (nr / 4) % 3
-						expectedPath := fmt.Sprintf("dash/track%d", trackIdx+1)
-						assert.Equal(t, expectedPath, rr.Header().Get("X-SegPath"))
+					if tc.segMetaFlag {
+						meta := tc.expectedMeta[ix]
+						assert.Equal(t, meta.path, rr.Header().Get("X-Segmeta-Path"))
+						assert.Equal(t, meta.trackTotal, rr.Header().Get("X-Segmeta-Track-Total"))
+						assert.Equal(t, meta.trackElapsed, rr.Header().Get("X-Segmeta-Track-Elapsed"))
+						assert.Equal(t, meta.assetTotal, rr.Header().Get("X-Segmeta-Asset-Total"))
+						assert.Equal(t, meta.assetElapsed, rr.Header().Get("X-Segmeta-Asset-Elapsed"))
 					} else {
-						assert.Empty(t, rr.Header().Get("X-SegPath"))
+						assert.Empty(t, rr.Header().Get("X-SegMeta-Path"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Track-Total"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Track-Elapsed"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Asset-Total"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Asset-Elapsed"))
 					}
 				})
 			}
