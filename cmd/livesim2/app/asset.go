@@ -1019,6 +1019,65 @@ func (rp *RepData) setSegmentBasePath(startTime uint64, basePath string) {
 	})
 }
 
+// findTrackSegmentRange returns the start and end times into r.Segments
+// for the track that owns the segment at the given startTime.
+// current considers partial segments as played.
+func (rp *RepData) findTrackSegmentTimeRange(startTime uint64) (start uint64, end uint64, offset uint64) {
+	segs := rp.Segments
+	trks := rp.SegmentPath
+
+	if len(trks) == 0 {
+		curIx := sort.Search(len(segs), func(i int) bool {
+			return segs[i].StartTime >= startTime
+		})
+		trackStart := segs[0].StartTime
+		trackEnd := segs[len(segs)-1].EndTime
+		trackCurrent := segs[curIx].EndTime
+		return trackStart, trackEnd, trackCurrent - trackStart
+	}
+
+	trackNext := sort.Search(len(trks), func(i int) bool {
+		return trks[i].StartTime > startTime
+	})
+
+	var searchStart uint64
+	if trackNext == 0 {
+		searchStart = 0
+	} else {
+		searchStart = trks[trackNext-1].StartTime
+	}
+
+	var searchEnd uint64
+	if trackNext >= len(trks) {
+		searchEnd = math.MaxUint64
+	} else {
+		searchEnd = trks[trackNext].StartTime
+	}
+
+	startIx := sort.Search(len(segs), func(i int) bool {
+		return segs[i].StartTime >= searchStart
+	})
+	if startIx >= len(segs) {
+		startIx = 0
+	}
+	trackStart := segs[startIx].StartTime
+
+	endIx := sort.Search(len(segs), func(i int) bool {
+		return segs[i].StartTime >= searchEnd
+	})
+	if endIx >= len(segs) || endIx == 0 {
+		endIx = len(segs)
+	}
+	trackEnd := segs[endIx-1].EndTime
+
+	curIx := sort.Search(len(segs), func(i int) bool {
+		return segs[i].StartTime >= startTime
+	})
+	trackCurrent := segs[curIx].EndTime
+
+	return trackStart, trackEnd, trackCurrent - trackStart
+}
+
 // SegmentType returns MIME type for MP4 segment.
 func (r RepData) SegmentType() string {
 	var segType string

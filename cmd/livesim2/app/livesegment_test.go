@@ -1279,21 +1279,34 @@ func TestSetHeaders(t *testing.T) {
 	segsPerTrack := int(assetTotalS / segDurS / float64(len(trackNames)))
 
 	makeMeta := func(nr int) expectedMeta {
-		elapsed := float64(nr) * segDurS
+		trackDurS := float64(segsPerTrack) * segDurS
+		posInTrack := nr % segsPerTrack
+		trackElapsedS := float64(posInTrack+1) * segDurS
+		elapsedS := float64((nr + 1) * int(segDurS) % int(assetTotalS))
 		track := trackNames[nr/segsPerTrack]
 		return expectedMeta{
 			path:         fmt.Sprintf("dash/%s", track),
-			trackTotal:   fmt.Sprintf("%.3fs", segDurS),
-			trackElapsed: fmt.Sprintf("%.3fs", elapsed),
+			trackTotal:   fmt.Sprintf("%.3fs", trackDurS),
+			trackElapsed: fmt.Sprintf("%.3fs", trackElapsedS),
 			assetTotal:   fmt.Sprintf("%.3fs", assetTotalS),
-			assetElapsed: fmt.Sprintf("%.3fs", elapsed),
+			assetElapsed: fmt.Sprintf("%.3fs", elapsedS),
 		}
 	}
 
 	metasFor := func(nrs []int) []expectedMeta {
-		metas := make([]expectedMeta, len(nrs))
+		metas := make([]expectedMeta, len(nrs)*2)
 		for i, nr := range nrs {
-			metas[i] = makeMeta(nr)
+			metas[i*2] = makeMeta(nr)
+			metas[i*2+1] = makeMeta(nr)
+		}
+		return metas
+	}
+
+	segsFor := func(nrs []int) []float64 {
+		metas := make([]float64, len(nrs)*2)
+		for i, nr := range nrs {
+			metas[i*2] = float64(nr)
+			metas[i*2+1] = float64(nr) + 0.5
 		}
 		return metas
 	}
@@ -1304,7 +1317,7 @@ func TestSetHeaders(t *testing.T) {
 
 	cases := []struct {
 		name               string
-		segs               []int
+		segs               []float64
 		dataOverride       []byte
 		expectedContentLen string
 		segMetaFlag        bool
@@ -1312,34 +1325,34 @@ func TestSetHeaders(t *testing.T) {
 	}{
 		{
 			name:         "SegMetaFlag true - first seg of each track",
-			segs:         firstSegs,
+			segs:         segsFor(firstSegs),
 			segMetaFlag:  true,
 			expectedMeta: metasFor(firstSegs),
 		},
 		{
 			name:         "SegMetaFlag true - last seg of each track",
-			segs:         lastSegs,
+			segs:         segsFor(lastSegs),
 			segMetaFlag:  true,
 			expectedMeta: metasFor(lastSegs),
 		},
 		{
 			name:         "SegMetaFlag true - second seg of each track",
-			segs:         secondSegs,
+			segs:         segsFor(secondSegs),
 			segMetaFlag:  true,
 			expectedMeta: metasFor(secondSegs),
 		},
 		{
 			name:        "SegMetaFlag false",
-			segs:        []int{0},
+			segs:        []float64{0},
 			segMetaFlag: false,
 		},
 		{
 			name: "nil config",
-			segs: []int{0},
+			segs: []float64{0},
 		},
 		{
 			name:        "empty path",
-			segs:        []int{0},
+			segs:        []float64{0},
 			segMetaFlag: true,
 			expectedMeta: []expectedMeta{
 				{"", "", "", "", ""},
@@ -1347,7 +1360,7 @@ func TestSetHeaders(t *testing.T) {
 		},
 		{
 			name:               "with data",
-			segs:               []int{0},
+			segs:               []float64{0},
 			dataOverride:       []byte("test segment data"),
 			expectedContentLen: "17",
 		},
@@ -1356,7 +1369,7 @@ func TestSetHeaders(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for ix, nr := range tc.segs {
-				t.Run(fmt.Sprintf("nr=%d", nr), func(t *testing.T) {
+				t.Run(fmt.Sprintf("nr=%.1f", nr), func(t *testing.T) {
 					am := setupAssetMgrConcat(t)
 					err := am.discoverAssets(logger)
 					require.NoError(t, err)
@@ -1368,9 +1381,9 @@ func TestSetHeaders(t *testing.T) {
 					cfg.SegTimelineMode = SegTimelineModeNr
 					cfg.SegMetaFlag = tc.segMetaFlag
 
-					nowMS := int((float64(nr) + 1) * segDurS * 1000)
+					nowMS := int((nr + 1.0) * segDurS * 1000)
 
-					media := fmt.Sprintf("video25fps/%d.m4s", nr)
+					media := fmt.Sprintf("video25fps/%d.m4s", int(nr))
 
 					so, err := genLiveSegment(logger, am.vodFS, asset, cfg, media, nowMS, false)
 					require.NoError(t, err)

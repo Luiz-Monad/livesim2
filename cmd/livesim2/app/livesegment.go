@@ -764,19 +764,22 @@ func setHeaders(w http.ResponseWriter, sh segHeader, cfg *ResponseConfig, a *ass
 
 func setSegMetaHeaders(w http.ResponseWriter, meta *segMeta, path string, a *asset) {
 	loopDurMS := a.LoopDurMS
-	loopDurTimescale := uint64(loopDurMS) * uint64(meta.timescale) / 1000
+	timescale := uint64(meta.timescale)
 
-	trackTotalMS := uint64(meta.newDur) * 1000 / uint64(meta.timescale)
-	trackElapsedMS := uint64(meta.newTime%loopDurTimescale) * 1000 / uint64(meta.timescale)
+	trackStart, trackEnd, trackOffset := meta.rep.findTrackSegmentTimeRange(meta.origTime)
+	trackTotalMS := (trackEnd - trackStart) * 1000 / timescale
+	trackElapsedMS := trackOffset * 1000 / timescale
 
-	assetTotalMS := loopDurMS
-	assetElapsedMS := int(meta.newTime*1000/uint64(meta.timescale)) % assetTotalMS
+	curSegRemain := trackStart + trackOffset - meta.origTime
+
+	assetTotalMS := uint64(loopDurMS)
+	assetElapsedMS := (meta.newTime + curSegRemain) * 1000 / timescale % assetTotalMS
 
 	w.Header().Set("X-Segmeta-Path", path)
 	w.Header().Set("X-Segmeta-Track-Total", formatDurationMS(trackTotalMS))
 	w.Header().Set("X-Segmeta-Track-Elapsed", formatDurationMS(trackElapsedMS))
-	w.Header().Set("X-Segmeta-Asset-Total", formatDurationMS(uint64(assetTotalMS)))
-	w.Header().Set("X-Segmeta-Asset-Elapsed", formatDurationMS(uint64(assetElapsedMS)))
+	w.Header().Set("X-Segmeta-Asset-Total", formatDurationMS(assetTotalMS))
+	w.Header().Set("X-Segmeta-Asset-Elapsed", formatDurationMS(assetElapsedMS))
 }
 
 func formatDurationMS(ms uint64) string {
