@@ -199,7 +199,7 @@ func (ch *channel) addInitDataAndUpdateTimescale(stream stream, init *mp4.InitSe
 
 	ch.addTrData(r)
 	switch sampleEntry {
-	case "avc1", "hvc1", "mp4a", "ac-3", "ec-3", "stpp", "wvtt":
+	case "avc1", "hvc1", "mp4a", "ac-3", "ec-3", "stpp", "wvtt", "Opus", "iamf":
 		// OK
 	case "evte": // Event stream. Don't add to MPD or contentinfo, but keep the segments.
 		// TODO. Handle event streams for SCTE-35 events and other cases
@@ -476,6 +476,10 @@ func extractAudioData(stsd *mp4.StsdBox, rep *m.RepresentationType) error {
 		codec = "ac-3"
 	case "ec-3":
 		codec = "ec-3"
+	case "Opus":
+		codec = "opus"
+	case "iamf":
+		codec = "iamf"
 	}
 	rep.Codecs = codec
 	return nil
