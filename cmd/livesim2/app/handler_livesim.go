@@ -109,6 +109,7 @@ func (s *Server) livesimHandlerFunc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.SetHost(s.Cfg.Host, r)
+	cfg.SetResponseFromHeader(r)
 	switch filepath.Ext(r.URL.Path) {
 	case ".mpd":
 		if !checkQuery(cfg.Query, r.URL) {

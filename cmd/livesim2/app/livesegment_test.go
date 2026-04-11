@@ -1135,9 +1135,10 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 	cases := []struct {
 		desc  string
 		media string
+		segs  []int
 	}{
-		{desc: "video", media: "video25fps/$NrOrTime$.m4s"},
-		{desc: "audio", media: "aac/$NrOrTime$.m4s"},
+		{desc: "video", media: "video25fps/$NrOrTime$.m4s", segs: []int{40, 44}},
+		{desc: "audio", media: "aac/$NrOrTime$.m4s", segs: []int{40, 44}},
 	}
 
 	for _, tc := range cases {
@@ -1157,7 +1158,7 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 					require.True(t, ok)
 					mediaTimescale := rep.MediaTimescale
 
-					for _, nr := range []int{40, 44} {
+					for _, nr := range tc.segs {
 						media := tc.media
 						mediaTime := nr * 2 * mediaTimescale
 						switch mpdType {
@@ -1242,6 +1243,186 @@ func TestConcatEditListLiveSegment(t *testing.T) {
 			so, err := genLiveSegment(logger, am.vodFS, asset, cfg, media, nowMS, false)
 			require.NoError(t, err, "genLiveSegment failed for time=%d media=%s", tc.mediaTime, media)
 			require.NotNil(t, so.seg, "segment should not be nil for time=%d", tc.mediaTime)
+		})
+	}
+}
+
+func TestSetHeaders(t *testing.T) {
+	logger := slog.Default()
+
+	type expectedMeta struct {
+		path         string
+		trackTotal   string
+		trackElapsed string
+		assetTotal   string
+		assetElapsed string
+	}
+
+	segDurS := 2.0
+	assetTotalS := 24.0
+	trackNames := []string{"track1", "track2", "track3"}
+	segsPerTrack := int(assetTotalS / segDurS / float64(len(trackNames)))
+
+	makeMeta := func(nr int) expectedMeta {
+		trackDurS := float64(segsPerTrack) * segDurS
+		posInTrack := nr % segsPerTrack
+		trackElapsedS := float64(posInTrack+1) * segDurS
+		elapsedS := float64((nr + 1) * int(segDurS) % int(assetTotalS))
+		track := trackNames[nr/segsPerTrack]
+		return expectedMeta{
+			path:         fmt.Sprintf("dash/%s", track),
+			trackTotal:   fmt.Sprintf("%.3fs", trackDurS),
+			trackElapsed: fmt.Sprintf("%.3fs", trackElapsedS),
+			assetTotal:   fmt.Sprintf("%.3fs", assetTotalS),
+			assetElapsed: fmt.Sprintf("%.3fs", elapsedS),
+		}
+	}
+
+	metasFor := func(nrs []int) []expectedMeta {
+		metas := make([]expectedMeta, len(nrs)*2)
+		for i, nr := range nrs {
+			metas[i*2] = makeMeta(nr)
+			metas[i*2+1] = makeMeta(nr)
+		}
+		return metas
+	}
+
+	segsFor := func(nrs []int) []float64 {
+		metas := make([]float64, len(nrs)*2)
+		for i, nr := range nrs {
+			metas[i*2] = float64(nr)
+			metas[i*2+1] = float64(nr) + 0.5
+		}
+		return metas
+	}
+
+	firstSegs := []int{0, 4, 8}
+	lastSegs := []int{3, 7, 11}
+	secondSegs := []int{1, 5, 9}
+
+	cases := []struct {
+		name               string
+		segs               []float64
+		dataOverride       []byte
+		expectedContentLen string
+		segMetaFlag        bool
+		expectedMeta       []expectedMeta
+	}{
+		{
+			name:         "SegMetaFlag true - first seg of each track",
+			segs:         segsFor(firstSegs),
+			segMetaFlag:  true,
+			expectedMeta: metasFor(firstSegs),
+		},
+		{
+			name:         "SegMetaFlag true - last seg of each track",
+			segs:         segsFor(lastSegs),
+			segMetaFlag:  true,
+			expectedMeta: metasFor(lastSegs),
+		},
+		{
+			name:         "SegMetaFlag true - second seg of each track",
+			segs:         segsFor(secondSegs),
+			segMetaFlag:  true,
+			expectedMeta: metasFor(secondSegs),
+		},
+		{
+			name:        "SegMetaFlag false",
+			segs:        []float64{0},
+			segMetaFlag: false,
+		},
+		{
+			name: "nil config",
+			segs: []float64{0},
+		},
+		{
+			name:        "empty path",
+			segs:        []float64{0},
+			segMetaFlag: true,
+			expectedMeta: []expectedMeta{
+				{"", "", "", "", ""},
+			},
+		},
+		{
+			name:               "with data",
+			segs:               []float64{0},
+			dataOverride:       []byte("test segment data"),
+			expectedContentLen: "17",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for ix, nr := range tc.segs {
+				t.Run(fmt.Sprintf("nr=%.1f", nr), func(t *testing.T) {
+					am := setupAssetMgrConcat(t)
+					err := am.discoverAssets(logger)
+					require.NoError(t, err)
+
+					asset, ok := am.findAsset("dash")
+					require.True(t, ok)
+
+					cfg := NewResponseConfig()
+					cfg.SegTimelineMode = SegTimelineModeNr
+					cfg.SegMetaFlag = tc.segMetaFlag
+
+					nowMS := int((nr + 1.0) * segDurS * 1000)
+
+					media := fmt.Sprintf("video25fps/%d.m4s", int(nr))
+
+					so, err := genLiveSegment(logger, am.vodFS, asset, cfg, media, nowMS, false)
+					require.NoError(t, err)
+
+					segPath := so.path
+					if tc.name == "empty path" {
+						segPath = ""
+					}
+
+					segData := so.data
+					if tc.dataOverride != nil {
+						segData = tc.dataOverride
+					}
+
+					rr := httptest.NewRecorder()
+					sh := segHeader{
+						rep:  so.meta.rep,
+						data: segData,
+						path: segPath,
+						meta: &so.meta,
+					}
+
+					testCfg := cfg
+					if tc.name == "nil config" {
+						testCfg = nil
+					}
+
+					err = setHeaders(rr, sh, testCfg, asset)
+					require.NoError(t, err)
+
+					assert.Equal(t, "video/mp4", rr.Header().Get("Content-Type"))
+
+					if tc.expectedContentLen != "" {
+						assert.Equal(t, tc.expectedContentLen, rr.Header().Get("Content-Length"))
+					} else {
+						assert.Empty(t, rr.Header().Get("Content-Length"))
+					}
+
+					if tc.segMetaFlag {
+						meta := tc.expectedMeta[ix]
+						assert.Equal(t, meta.path, rr.Header().Get("X-Segmeta-Path"))
+						assert.Equal(t, meta.trackTotal, rr.Header().Get("X-Segmeta-Track-Total"))
+						assert.Equal(t, meta.trackElapsed, rr.Header().Get("X-Segmeta-Track-Elapsed"))
+						assert.Equal(t, meta.assetTotal, rr.Header().Get("X-Segmeta-Asset-Total"))
+						assert.Equal(t, meta.assetElapsed, rr.Header().Get("X-Segmeta-Asset-Elapsed"))
+					} else {
+						assert.Empty(t, rr.Header().Get("X-SegMeta-Path"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Track-Total"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Track-Elapsed"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Asset-Total"))
+						assert.Empty(t, rr.Header().Get("X-Segmeta-Asset-Elapsed"))
+					}
+				})
+			}
 		})
 	}
 }
