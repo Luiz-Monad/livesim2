@@ -111,7 +111,7 @@ func (md *MPDData) LoadFromJSON(logger *slog.Logger, repFS fs.FS, dataPath strin
 		if err != nil {
 			return true, err
 		}
-		logger.Info("Read gzipped mpdData", "path", gzipPath)
+		logger.Debug("Read gzipped mpdData", "path", gzipPath)
 	}
 	if len(data) == 0 {
 		return false, nil
@@ -145,6 +145,6 @@ func (md *MPDData) WriteToJSON(logger *slog.Logger, repFS rwfs.FS, dataPath stri
 	if err != nil {
 		return err
 	}
-	logger.Info("Wrote mpdData", "path", gzipPath)
+	logger.Debug("Wrote mpdData", "path", gzipPath)
 	return nil
 }
