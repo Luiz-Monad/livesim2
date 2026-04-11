@@ -5,6 +5,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -127,7 +128,7 @@ func TestLoadAsset(t *testing.T) {
 				err := setSegmentEndNr(path.Join(tmpDir, tc.assetPath), tc.segmentEndNr)
 				require.NoError(t, err)
 			}
-			err := am.discoverAssets(logger)
+			err := am.discoverAssets(context.Background(), logger)
 			require.NoError(t, err)
 			asset, ok := am.findAsset(tc.assetPath)
 			require.True(t, ok)
@@ -154,7 +155,7 @@ func TestAssetRepDataRoundtrip(t *testing.T) {
 	am, _ := setupAssetMgrTmp(t)
 
 	am1 := newAssetMgrBld().from(am).writeRep(true).build()
-	err := am1.discoverAssets(logger)
+	err := am1.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -178,7 +179,7 @@ func TestAssetRepDataRoundtrip(t *testing.T) {
 			require.NotNil(t, assetWrite)
 
 			am2 := newAssetMgrBld().from(am).missingRep(true).build()
-			err = am2.discoverAssets(logger)
+			err = am2.discoverAssets(context.Background(), logger)
 			require.NoError(t, err)
 
 			assetRead, ok := am2.findAsset(tc.asset)
@@ -235,7 +236,7 @@ func TestWriteMissingRepData(t *testing.T) {
 	// Step 1: Load assets with writeMissingRepData=true (no files exist yet)
 	// This should write RepData files
 	am1 := newAssetMgrBld().from(am).missingRep(true).build()
-	err := am1.discoverAssets(logger)
+	err := am1.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	// Verify files were created
@@ -257,7 +258,7 @@ func TestWriteMissingRepData(t *testing.T) {
 	// Step 4: Load assets again with writeMissingRepData=true
 	// This should only regenerate the missing A48 file, not V300
 	am2 := newAssetMgrBld().from(am).missingRep(true).build()
-	err = am2.discoverAssets(logger)
+	err = am2.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	// Step 5: Verify A48 file was recreated
@@ -293,7 +294,7 @@ func TestMPDCachingRoundtrip(t *testing.T) {
 	am, _ := setupAssetMgrTmp(t)
 
 	am1 := newAssetMgrBld().from(am).missingRep(true).build()
-	err := am1.discoverAssets(logger)
+	err := am1.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -318,7 +319,7 @@ func TestMPDCachingRoundtrip(t *testing.T) {
 			require.NotEmpty(t, assetWrite.MPDs, "should have MPDs")
 
 			am2 := newAssetMgrBld().from(am).missingRep(true).build()
-			err = am2.discoverAssets(logger)
+			err = am2.discoverAssets(context.Background(), logger)
 			require.NoError(t, err)
 
 			assetRead, ok := am2.findAsset(tc.asset)
@@ -655,7 +656,7 @@ func TestConcatAssets(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			am := newAssetMgrBld().from(am).concatAssets(tc.concatAssets).build()
-			err := am.discoverAssets(logger)
+			err := am.discoverAssets(context.Background(), logger)
 			require.NoError(t, err)
 			asset, ok := am.findAsset(tc.assetPath)
 			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
@@ -672,7 +673,7 @@ func TestConcatAssetsSegmentRead(t *testing.T) {
 	logger := slog.Default()
 
 	am := setupAssetMgrConcat(t)
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("dash")
@@ -730,7 +731,7 @@ func TestConcatEditListOffset(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			am1 := newAssetMgrBld().from(am).concatAssets(tc.concatAssets).build()
-			err := am1.discoverAssets(logger)
+			err := am1.discoverAssets(context.Background(), logger)
 			require.NoError(t, err)
 			asset, ok := am1.findAsset(tc.assetPath)
 			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))

@@ -6,6 +6,7 @@ package app
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,8 +25,8 @@ import (
 	"sync"
 
 	"github.com/Dash-Industry-Forum/livesim2/internal"
-	"github.com/Dash-Industry-Forum/livesim2/pkg/util"
 	mx "github.com/Dash-Industry-Forum/livesim2/pkg/mpd"
+	"github.com/Dash-Industry-Forum/livesim2/pkg/util"
 	m "github.com/Eyevinn/dash-mpd/mpd"
 	"github.com/Eyevinn/mp4ff/bits"
 	"github.com/Eyevinn/mp4ff/mp4"
@@ -122,8 +123,8 @@ const (
 )
 
 // discoverAssets walks the file tree and finds all directories containing MPD files.
-func (am *assetMgr) discoverAssets(logger *slog.Logger) error {
-	tp := util.NewTaskPool[taskKind](runtime.NumCPU(), 8, 0)
+func (am *assetMgr) discoverAssets(ctx context.Context, logger *slog.Logger) error {
+	tp := util.NewTaskPoolCtx[taskKind](ctx, runtime.NumCPU(), 8, 0)
 	tp.Start()
 
 	tp.AddTask(func() (taskKind, error) {

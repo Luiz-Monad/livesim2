@@ -55,6 +55,23 @@ func NewTaskPool[T any](poolSize int, bufferSize int, options TaskPoolOptions) *
 	}
 }
 
+// NewTaskPool creates a new TaskPool instance
+func NewTaskPoolCtx[T any](ctx context.Context, poolSize int, bufferSize int, options TaskPoolOptions) *TaskPool[T] {
+	input := make(chan Task[T], bufferSize*poolSize)
+	output := make(chan Result[T], bufferSize*poolSize)
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	return &TaskPool[T]{
+		poolSize: poolSize,
+		options:  options,
+		input:    input,
+		output:   output,
+		ctx:      ctx,
+		cancel:   cancel,
+	}
+}
+
 // Start begins processing tasks with the specified number of workers
 func (tp *TaskPool[T]) Start() {
 	if !tp.setStarted() {

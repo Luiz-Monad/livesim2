@@ -29,7 +29,7 @@ import (
 func TestLiveSegment(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	log := slog.Default()
 
@@ -117,7 +117,7 @@ func TestLiveSegment(t *testing.T) {
 func TestAc3Timing(t *testing.T) {
 	am := setupAssetMgr()
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("bbb_hevc_ac3_8s")
@@ -139,7 +139,7 @@ func TestAc3Timing(t *testing.T) {
 func TestCheckAudioSegmentTimeAddressing(t *testing.T) {
 	am := setupAssetMgr()
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -194,7 +194,7 @@ func TestCheckAudioSegmentTimeAddressing(t *testing.T) {
 func TestLiveThumbSegment(t *testing.T) {
 	am := setupAssetMgr()
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -246,7 +246,7 @@ func TestLiveThumbSegment(t *testing.T) {
 func TestWriteChunkedSegment(t *testing.T) {
 	am := setupAssetMgr()
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 	cfg := NewResponseConfig()
 	cfg.AvailabilityTimeCompleteFlag = false
@@ -391,7 +391,7 @@ func TestTTMLTimeShifts(t *testing.T) {
 func TestStartNumber(t *testing.T) {
 	am := setupAssetMgr()
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 	err = logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
@@ -458,7 +458,7 @@ func TestStartNumber(t *testing.T) {
 func TestLLSegmentAvailability(t *testing.T) {
 	am := setupAssetMgr()
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 	err = logging.InitSlog("error", "discard")
 	require.NoError(t, err)
@@ -614,7 +614,7 @@ func TestLLSegmentAvailability(t *testing.T) {
 func TestSegmentStatusCodeResponse(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -728,7 +728,7 @@ func TestSegmentStatusCodeResponse(t *testing.T) {
 func TestMpeghAssets(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -897,7 +897,7 @@ func TestMehdBoxRemovedFromInitSegment(t *testing.T) {
 	var drmCfg *drm.DrmConfig = nil
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	asset, ok := am.findAsset("testpic_8s")
 	require.True(t, ok)
@@ -918,7 +918,7 @@ func TestWriteSubSegment(t *testing.T) {
 	err := logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
 	log := slog.Default()
-	err = am.discoverAssets(log)
+	err = am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -1038,7 +1038,7 @@ func TestWriteSubSegmentWithChunkDuration(t *testing.T) {
 	err := logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
 	log := slog.Default()
-	err = am.discoverAssets(log)
+	err = am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -1125,7 +1125,7 @@ func TestConcatAssetLiveSegment(t *testing.T) {
 	logger := slog.Default()
 
 	am := setupAssetMgrConcat(t)
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("dash")
@@ -1181,7 +1181,7 @@ func TestConcatEditListLiveSegment(t *testing.T) {
 	logger := slog.Default()
 
 	am := setupAssetMgrConcat(t)
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("dash")
@@ -1356,7 +1356,7 @@ func TestSetHeaders(t *testing.T) {
 			for ix, nr := range tc.segs {
 				t.Run(fmt.Sprintf("nr=%.1f", nr), func(t *testing.T) {
 					am := setupAssetMgrConcat(t)
-					err := am.discoverAssets(logger)
+					err := am.discoverAssets(context.Background(), logger)
 					require.NoError(t, err)
 
 					asset, ok := am.findAsset("dash")

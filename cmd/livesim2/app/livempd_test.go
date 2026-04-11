@@ -5,6 +5,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -26,7 +27,7 @@ import (
 func TestLiveMPDStart(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -126,7 +127,7 @@ func TestLiveMPDStart(t *testing.T) {
 func TestLiveMPDWithTimeSubs(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -185,7 +186,7 @@ var liveSubEn = "" +
 func TestSegmentTimes(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -252,7 +253,7 @@ func TestSegmentTimes(t *testing.T) {
 func TestLastAvailableSegment(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	cases := []struct {
 		desc                     string
@@ -369,7 +370,7 @@ func TestLastAvailableSegment(t *testing.T) {
 func TestPublishTime(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -548,7 +549,7 @@ func TestPublishTime(t *testing.T) {
 func TestNormalAvailabilityTimeOffset(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -630,7 +631,7 @@ func TestNormalAvailabilityTimeOffset(t *testing.T) {
 func TestUTCTiming(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -710,7 +711,7 @@ func segTimingsFromS(ss []*m.S) []segTiming {
 func TestAudioSegmentTimeFollowsVideo(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -790,7 +791,7 @@ func TestAudioSegmentTimeFollowsVideo(t *testing.T) {
 func TestMultiPeriod(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -902,7 +903,7 @@ func TestMultiPeriod(t *testing.T) {
 func TestRelStartStopTimeIntoLocation(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -937,7 +938,7 @@ func TestRelStartStopTimeIntoLocation(t *testing.T) {
 func TestFractionalFramerateMPDs(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -1014,7 +1015,7 @@ func TestFillContentTypes(t *testing.T) {
 func TestEndNumberRemovedFromMPD(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	assetName := "testpic_2s"
 	asset, ok := am.findAsset(assetName)
@@ -1037,7 +1038,7 @@ func TestGenerateTimelineEntries(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
 
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -1535,7 +1536,7 @@ func TestUpdateSSRAdaptationSet(t *testing.T) {
 func TestEditListOffsetMPD(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("WAVE/av")
@@ -1646,7 +1647,7 @@ func TestEditListOffsetMPD(t *testing.T) {
 func TestEditListOffsetAvailabilityTime(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("WAVE/av")
@@ -1753,7 +1754,7 @@ func TestPatternGeneration(t *testing.T) {
 func TestPatternConsistency(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -1929,7 +1930,7 @@ func TestPatternConsistency(t *testing.T) {
 func TestVideoAudioSegmentCountMatch(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -1986,7 +1987,7 @@ func TestVideoAudioSegmentCountMatch(t *testing.T) {
 func TestPatternStabilityWithTimeShift(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -2101,7 +2102,7 @@ func TestURLParsingForNrPattern(t *testing.T) {
 func TestURLToMPDWithPattern(t *testing.T) {
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -2715,7 +2716,7 @@ func TestPECalculationWithSpecificNowMS(t *testing.T) {
 	// Load the actual testpic_2s asset to test with real data
 	am := setupAssetMgr()
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -2787,7 +2788,7 @@ func TestEditListOffsetConcatMPD(t *testing.T) {
 	logger := slog.Default()
 
 	am := setupAssetMgrConcat(t)
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("dash")
