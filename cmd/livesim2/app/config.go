@@ -56,6 +56,8 @@ type ServerConfig struct {
 	WriteRepData bool `json:"writerepdata"`
 	// WriteMissingRepData is true if representation metadata should be written only when missing
 	WriteMissingRepData bool `json:"writemissingrepdata"`
+	// ConcatAssets concatenates multiple MPDs in the same asset directory into one asset
+	ConcatAssets bool `json:"concatassets"`
 	// Domains is a comma-separated list of domains for Let's Encrypt
 	Domains string `json:"domains"`
 	// CertPath is a path to a valid TLS certificate

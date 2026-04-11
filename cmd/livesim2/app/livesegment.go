@@ -567,7 +567,8 @@ func createOutSeg(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart string
 	if err != nil {
 		return so, err
 	}
-	segPath := path.Join(a.AssetPath, replaceTimeAndNr(rep.MediaURI, so.meta.origTime, so.meta.origNr))
+	segBasePath, offsetStart := rep.getSegmentBasePathAndOffset(so.meta.origTime)
+	segPath := path.Join(segBasePath, replaceTimeAndNr(rep.MediaURI, offsetStart, so.meta.origNr))
 	so.data, err = fs.ReadFile(vodFS, segPath)
 	if err != nil {
 		return so, fmt.Errorf("read segment: %w", err)
@@ -628,7 +629,7 @@ func createAudioSegment(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart 
 		uint64(refRep.duration()),
 		refTimescale, rep)
 	var so segOut
-	so.seg, err = createAudioSeg(vodFS, a, recipe)
+	so.seg, err = createAudioSeg(vodFS, recipe)
 	if err != nil {
 		return so, fmt.Errorf("createAudioSeg: %w", err)
 	}

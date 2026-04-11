@@ -68,7 +68,12 @@ func SetupServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 		LiveRouter: l,
 		VodRouter:  v,
 		Cfg:        cfg,
-		assetMgr:   newAssetMgr(vodFS, cfg.RepDataRoot, cfg.WriteRepData, cfg.WriteMissingRepData),
+		assetMgr: newAssetMgrBld(vodFS).
+			repDir(cfg.RepDataRoot).
+			writeRep(cfg.WriteRepData).
+			missingRep(cfg.WriteMissingRepData).
+			concatAssets(cfg.ConcatAssets).
+			build(),
 		reqLimiter: reqLimiter,
 	}
 

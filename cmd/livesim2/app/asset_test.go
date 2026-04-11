@@ -5,6 +5,8 @@
 package app
 
 import (
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path"
@@ -136,7 +138,7 @@ func TestLoadAsset(t *testing.T) {
 			vodFS := os.DirFS(vodRoot)
 			for _, writeRepData := range []bool{true, false} {
 				// Write repData files the first time, and read them the second
-				am := newAssetMgr(vodFS, tmpDir, writeRepData, false)
+				am := newAssetMgrBld(vodFS).repDir(tmpDir).writeRep(writeRepData).build()
 				err := am.discoverAssets(logger)
 				require.NoError(t, err)
 				asset, ok := am.findAsset(tc.assetPath)
@@ -169,7 +171,7 @@ func TestWriteMissingRepData(t *testing.T) {
 
 	// Step 1: Load assets with writeMissingRepData=true (no files exist yet)
 	// This should write RepData files
-	am1 := newAssetMgr(vodFS, tmpDir, false, true)
+	am1 := newAssetMgrBld(vodFS).repDir(tmpDir).missingRep(true).build()
 	err := am1.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -191,7 +193,7 @@ func TestWriteMissingRepData(t *testing.T) {
 
 	// Step 4: Load assets again with writeMissingRepData=true
 	// This should only regenerate the missing A48 file, not V300
-	am2 := newAssetMgr(vodFS, tmpDir, false, true)
+	am2 := newAssetMgrBld(vodFS).repDir(tmpDir).missingRep(true).build()
 	err = am2.discoverAssets(logger)
 	require.NoError(t, err)
 
@@ -355,6 +357,57 @@ func copyDir(srcDir, dstDir string) error {
 	})
 }
 
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+type trackFiles struct {
+	destDir     string
+	manifest    string
+	initFiles   []string // {repName, filename}
+	segmentInfo []string // {repName, segmentPattern} (e.g., "%d.m4s")
+	segmentCnt  int
+	segments    *[]int
+}
+
+func copyTrack(t *testing.T, srcAsset string, tf trackFiles) {
+	err := os.MkdirAll(tf.destDir, 0755)
+	require.NoError(t, err)
+
+	err = copyFile(filepath.Join(srcAsset, tf.manifest), filepath.Join(tf.destDir, tf.manifest))
+	require.NoError(t, err)
+
+	for _, init := range tf.initFiles {
+		err = os.MkdirAll(filepath.Join(tf.destDir, init), 0755)
+		require.NoError(t, err)
+		err = copyFile(filepath.Join(srcAsset, init, "init.mp4"), filepath.Join(tf.destDir, init, "init.mp4"))
+		require.NoError(t, err)
+	}
+
+	if tf.segments != nil {
+		tf.segmentCnt = len(*tf.segments) / len(tf.segmentInfo)
+	}
+	for i := 0; i < tf.segmentCnt; i++ {
+		for j, seg := range tf.segmentInfo {
+			k := i + 1
+			if tf.segments != nil {
+				k = (*tf.segments)[i+j*tf.segmentCnt]
+				if k < 0 {
+					continue
+				}
+			}
+			src := filepath.Join(srcAsset, seg, fmt.Sprintf("%d.m4s", k))
+			dst := filepath.Join(tf.destDir, seg, fmt.Sprintf("%d.m4s", k))
+			err = copyFile(src, dst)
+			require.NoError(t, err)
+		}
+	}
+}
+
 // Set the endNumber attribute in all MPDs SegmentTemplate elements
 func setSegmentEndNr(assetDir string, endNumber uint32) error {
 	files, err := os.ReadDir(assetDir)
@@ -385,4 +438,172 @@ func setSegmentEndNr(assetDir string, endNumber uint32) error {
 		}
 	}
 	return nil
+}
+
+func setupTestConcat(t *testing.T) string {
+	tmpDir := t.TempDir()
+	dashDir := filepath.Join(tmpDir, "dash")
+	track1Dir := filepath.Join(dashDir, "track1")
+	track2Dir := filepath.Join(dashDir, "track2")
+	track3Dir := filepath.Join(dashDir, "track3")
+
+	srcAsset := filepath.Join("testdata", "assets", "test_fixseg_edtlst")
+
+	copyTrack(t, srcAsset+"/test_av_1", trackFiles{
+		destDir:     track1Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800,
+			0, 95232, 191488, 287744,
+		},
+	})
+
+	copyTrack(t, srcAsset+"/test_av_2", trackFiles{
+		destDir:     track2Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800,
+			0, 95232, 191488, 287744,
+		},
+	})
+
+	copyTrack(t, srcAsset+"/test_av_3", trackFiles{
+		destDir:     track3Dir,
+		manifest:    "combined.mpd",
+		initFiles:   []string{"video25fps", "aac"},
+		segmentInfo: []string{"video25fps", "aac"},
+		segments: &[]int{
+			0, 25600, 51200, 76800,
+			0, 95232, 191488, 287744,
+		},
+	})
+
+	return tmpDir
+}
+
+func TestConcatAssets(t *testing.T) {
+	logger := slog.Default()
+	testCases := []struct {
+		desc         string
+		assetPath    string
+		concatAssets bool
+		expectedSegs int
+		expectedLoop int
+	}{
+		{
+			desc:         "multiple tracks under dash with concat - should concatenate segments",
+			assetPath:    "dash",
+			concatAssets: true,
+			expectedSegs: 12,
+			expectedLoop: 24000,
+		},
+		{
+			desc:         "multiple tracks under dash without concat - first track only",
+			assetPath:    "dash/track1",
+			concatAssets: false,
+			expectedSegs: 4,
+			expectedLoop: 8000,
+		},
+	}
+
+	tmpDir := setupTestConcat(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			vodFS := os.DirFS(tmpDir)
+			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
+			err := am.discoverAssets(logger)
+			require.NoError(t, err)
+			asset, ok := am.findAsset(tc.assetPath)
+			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
+			require.NotNil(t, asset)
+			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
+			rep, ok := asset.Reps["video25fps"]
+			require.True(t, ok, "rep video25fps not found")
+			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
+		})
+	}
+}
+
+func TestConcatAssetsSegmentRead(t *testing.T) {
+	logger := slog.Default()
+
+	tmpDir := setupTestConcat(t)
+
+	vodFS := os.DirFS(tmpDir)
+	am := newAssetMgrBld(vodFS).concatAssets(true).build()
+	err := am.discoverAssets(logger)
+	require.NoError(t, err)
+
+	asset, ok := am.findAsset("dash")
+	require.True(t, ok, "asset dash not found")
+	require.NotNil(t, asset)
+
+	rep, ok := asset.Reps["video25fps"]
+	require.True(t, ok, "rep video25fps not found")
+	require.Equal(t, 12, len(rep.Segments), "expected 12 segments (4 per track)")
+	require.Equal(t, 3, len(rep.SegmentPath), "expected 3 segment paths")
+
+	segBasePath1, offset1 := rep.getSegmentBasePathAndOffset(0)
+	require.Equal(t, "dash/track1", segBasePath1, "first segments should be from track1")
+	require.Equal(t, uint64(0), offset1, "track1 starts at 0")
+	segPath1 := path.Join(segBasePath1, strings.ReplaceAll(rep.MediaURI, "$Time$", "0"))
+	_, err = fs.ReadFile(vodFS, segPath1)
+	require.NoError(t, err, "should be able to read segment from track1")
+
+	segBasePath2, offset2 := rep.getSegmentBasePathAndOffset(102400)
+	require.Equal(t, "dash/track2", segBasePath2, "segments at 102400 (timescale) should be from track2")
+	require.Equal(t, uint64(0), offset2, "track2 starts at 0")
+	segPath2 := path.Join(segBasePath2, strings.ReplaceAll(rep.MediaURI, "$Time$", "0"))
+	_, err = fs.ReadFile(vodFS, segPath2)
+	require.NoError(t, err, "should be able to read segment from track2")
+}
+
+func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func TestConcatEditListOffset(t *testing.T) {
+	logger := slog.Default()
+	testCases := []struct {
+		desc         string
+		assetPath    string
+		concatAssets bool
+		expectedSegs int
+		expectedLoop int
+	}{
+		{
+			desc:         "multiple tracks under dash with concat and edit lists",
+			assetPath:    "dash",
+			concatAssets: true,
+			expectedSegs: 12,
+			expectedLoop: 24000,
+		},
+	}
+	
+	tmpDir := setupTestConcat(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			vodFS := os.DirFS(tmpDir)
+			am := newAssetMgrBld(vodFS).concatAssets(tc.concatAssets).build()
+			err := am.discoverAssets(logger)
+			require.NoError(t, err)
+			asset, ok := am.findAsset(tc.assetPath)
+			require.True(t, ok, "asset %s not found, available: %v", tc.assetPath, mapKeys(am.assets))
+			require.NotNil(t, asset)
+			require.Equal(t, tc.expectedLoop, asset.LoopDurMS, "loop duration mismatch")
+			rep, ok := asset.Reps["video25fps"]
+			require.True(t, ok, "rep video25fps not found")
+			require.Equal(t, tc.expectedSegs, len(rep.Segments), "segment count mismatch")
+		})
+	}
 }

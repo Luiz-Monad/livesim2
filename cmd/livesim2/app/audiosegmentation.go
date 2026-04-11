@@ -66,7 +66,7 @@ func (s sampleItvl) dur(sampleDur uint64) uint64 {
 }
 
 // createAudioSeg takes a recipe and creates an output audio segment with the right samples.
-func createAudioSeg(vodFS fs.FS, a *asset, rec audioRecipe) (*mp4.MediaSegment, error) {
+func createAudioSeg(vodFS fs.FS, rec audioRecipe) (*mp4.MediaSegment, error) {
 	rep := rec.rep
 	sampleDur := uint64(*rep.ConstantSampleDuration)
 	var startSampleIdx, endSampleIdx uint32
@@ -142,20 +142,22 @@ func createAudioSeg(vodFS fs.FS, a *asset, rec audioRecipe) (*mp4.MediaSegment, 
 	for _, itvl := range sampleItvls {
 		s := rep.Segments[itvl.segIdx]
 
+		// For concatenated assets we also need to map back from the concatenated
+		// timeline to the track timeline.
+		segBasePath, segmentTime := rep.getSegmentBasePathAndOffset(s.StartTime)
+
 		// For audio segments with editListOffset, we need to map back to the original
 		// segment file names. The calculated StartTime doesn't match the actual file names.
-		segmentTime := s.StartTime
 		if rep.EditListOffset > 0 && rep.ContentType == "audio" {
 			// For audio segments, map back to original timeline for file naming
 			// The segment files are named with original audio timeline values
-			if itvl.segIdx > 0 {
+			if itvl.segIdx > 0 && segmentTime > 0 {
 				// For segments after segment 0, subtract editListOffset to get original filename
-				segmentTime = s.StartTime - uint64(rep.EditListOffset)
+				segmentTime = segmentTime - uint64(rep.EditListOffset)
 			}
-			// Segment 0 keeps its original time (0)
 		}
 
-		segPath := path.Join(a.AssetPath, replaceTimeAndNr(rep.MediaURI, segmentTime, s.Nr))
+		segPath := path.Join(segBasePath, replaceTimeAndNr(rep.MediaURI, segmentTime, s.Nr))
 		data, err := fs.ReadFile(vodFS, segPath)
 		if err != nil {
 			return nil, fmt.Errorf("read segment: %w", err)

@@ -25,8 +25,7 @@ import (
 // TestLiveMPDStart tests that start parameters are fine for Number and TimelineTime
 func TestLiveMPDStart(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -127,7 +126,7 @@ func TestLiveMPDStart(t *testing.T) {
 
 func TestLiveMPDWithTimeSubs(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -187,7 +186,7 @@ var liveSubEn = "" +
 // TestSegmentTimes checks that the right number of entries are in the SegmentTimeline
 func TestSegmentTimes(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -255,8 +254,7 @@ func TestSegmentTimes(t *testing.T) {
 // TestLastAvailableSegment tests that the last available segment is correct including low latency.
 func TestLastAvailableSegment(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, true, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -374,8 +372,7 @@ func TestLastAvailableSegment(t *testing.T) {
 
 func TestPublishTime(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -555,7 +552,7 @@ func TestPublishTime(t *testing.T) {
 
 func TestNormalAvailabilityTimeOffset(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -638,7 +635,7 @@ func TestNormalAvailabilityTimeOffset(t *testing.T) {
 
 func TestUTCTiming(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -719,7 +716,7 @@ func segTimingsFromS(ss []*m.S) []segTiming {
 
 func TestAudioSegmentTimeFollowsVideo(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -800,7 +797,7 @@ func TestAudioSegmentTimeFollowsVideo(t *testing.T) {
 // TestMultiPeriod tests that period splitting works as expected
 func TestMultiPeriod(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -913,7 +910,7 @@ func TestMultiPeriod(t *testing.T) {
 
 func TestRelStartStopTimeIntoLocation(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	am := newAssetMgr(vodFS, "", false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -949,8 +946,7 @@ func TestRelStartStopTimeIntoLocation(t *testing.T) {
 
 func TestFractionalFramerateMPDs(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -1028,8 +1024,7 @@ func TestFillContentTypes(t *testing.T) {
 
 func TestEndNumberRemovedFromMPD(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -1052,9 +1047,7 @@ func TestEndNumberRemovedFromMPD(t *testing.T) {
 
 func TestGenerateTimelineEntries(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-
-	am := newAssetMgr(vodFS, "", false, false)
-
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 
 	err := am.discoverAssets(logger)
@@ -1554,8 +1547,7 @@ func TestUpdateSSRAdaptationSet(t *testing.T) {
 // TestEditListOffsetMPD tests that editListOffset affects MPD SegmentTimeline $Time$ values
 func TestEditListOffsetMPD(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -1667,8 +1659,7 @@ func TestEditListOffsetMPD(t *testing.T) {
 // TestEditListOffsetAvailabilityTime tests that editListOffset affects availability time calculations
 func TestEditListOffsetAvailabilityTime(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -1776,8 +1767,7 @@ func TestPatternGeneration(t *testing.T) {
 // TestPatternConsistency tests that the same pattern is generated for both $Time$ and $Number$ addressing modes
 func TestPatternConsistency(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -1954,8 +1944,7 @@ func TestPatternConsistency(t *testing.T) {
 // when using pattern-based SegmentTimeline.
 func TestVideoAudioSegmentCountMatch(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -2013,8 +2002,7 @@ func TestVideoAudioSegmentCountMatch(t *testing.T) {
 // the Pattern stays identical but pE advances by 1 (modulo pattern length).
 func TestPatternStabilityWithTimeShift(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -2130,8 +2118,7 @@ func TestURLParsingForNrPattern(t *testing.T) {
 // TestURLToMPDWithPattern tests end-to-end URL to MPD generation with Pattern
 func TestURLToMPDWithPattern(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -2746,8 +2733,7 @@ func TestPECalculationWithSpecificNowMS(t *testing.T) {
 
 	// Load the actual testpic_2s asset to test with real data
 	vodFS := os.DirFS("testdata/assets")
-	tmpDir := t.TempDir()
-	am := newAssetMgr(vodFS, tmpDir, false, false)
+	am := newAssetMgrBld(vodFS).build()
 	logger := slog.Default()
 	err := am.discoverAssets(logger)
 	require.NoError(t, err)
@@ -2810,4 +2796,93 @@ func TestPECalculationWithSpecificNowMS(t *testing.T) {
 			//	"PE value should match expected for nowMS=%d", tc.nowMS)
 		})
 	}
+}
+
+// TestEditListOffsetConcatMPD tests that editListOffset affects segment timeline
+// when playing a concatenated MPD where multiple tracks with editListOffset are
+// combined into a single asset.
+// This test creates a setup similar to TestConcatEditListOffset but uses
+// the WAVE/av asset which has audio with editListOffset in the segment timeline.
+func TestEditListOffsetConcatMPD(t *testing.T) {
+	logger := slog.Default()
+
+	tmpDir := setupTestConcat(t)
+
+	vodFS := os.DirFS(tmpDir)
+	am := newAssetMgrBld(vodFS).concatAssets(true).build()
+	err := am.discoverAssets(logger)
+	require.NoError(t, err)
+
+	asset, ok := am.findAsset("dash")
+	require.True(t, ok, "dash asset not found, available: %v", mapKeys(am.assets))
+	require.NotNil(t, asset)
+
+	rep, ok := asset.Reps["aac"]
+	require.True(t, ok, "aac rep not found")
+	require.Equal(t, int64(1024), rep.EditListOffset, "Expected editListOffset of 1024")
+
+	require.Equal(t, 24000, asset.LoopDurMS, "loop duration should be 24000ms")
+
+	cfg := NewResponseConfig()
+	cfg.SegTimelineMode = SegTimelineModeTime
+	tsbd := m.Duration(60 * time.Second)
+
+	mpd, err := asset.getVodMPD("combined.mpd")
+	require.NoError(t, err)
+
+	require.Greater(t, len(mpd.Periods), 0, "Should have at least one period")
+
+	t.Run("EarlyTime_FirstSegmentShortenedDuration", func(t *testing.T) {
+		nowMS := int(10000)
+		wTimes := calcWrapTimes(asset, cfg, nowMS, tsbd)
+
+		videoAS := mpd.Periods[0].AdaptationSets[0]
+		refSE, err := asset.generateTimelineEntries(videoAS.Representations[0].Id, wTimes, 0, nil)
+		require.NoError(t, err)
+
+		audioAS := mpd.Periods[0].AdaptationSets[1]
+		audioRepID := audioAS.Representations[0].Id
+		audioRep := asset.Reps[audioRepID]
+		atoMS, _ := setOffsetInAdaptationSet(cfg, audioAS)
+
+		audioSE, err := asset.generateTimelineEntriesFromRef(refSE, audioRepID, nil)
+		require.NoError(t, err)
+		require.Greater(t, len(audioSE.entries), 0, "Should have audio segments")
+
+		firstSegTime := *audioSE.entries[0].T
+		firstSegDur := audioSE.entries[0].D
+
+		t.Logf("Concat early time - First segment: time=%d, duration=%d, editListOffset=%d, atoMS=%d",
+			firstSegTime, firstSegDur, audioRep.EditListOffset, atoMS)
+
+		require.Equal(t, uint64(0), firstSegTime, "First segment time should be 0 at early time")
+		require.Greater(t, firstSegDur, uint64(0), "First segment should have positive duration")
+		require.Less(t, firstSegDur, uint64(100000), "Duration should be shortened from original")
+	})
+
+	t.Run("LaterTime_FirstSegmentShiftedTime", func(t *testing.T) {
+		nowMS := int(70000)
+		wTimes := calcWrapTimes(asset, cfg, nowMS, tsbd)
+
+		videoAS := mpd.Periods[0].AdaptationSets[0]
+		refSE, err := asset.generateTimelineEntries(videoAS.Representations[0].Id, wTimes, 0, nil)
+		require.NoError(t, err)
+
+		audioAS := mpd.Periods[0].AdaptationSets[1]
+		audioRepID := audioAS.Representations[0].Id
+		audioRep := asset.Reps[audioRepID]
+
+		audioSE, err := asset.generateTimelineEntriesFromRef(refSE, audioRepID, nil)
+		require.NoError(t, err)
+		require.Greater(t, len(audioSE.entries), 0, "Should have audio segments")
+
+		firstSegTime := *audioSE.entries[0].T
+		firstSegDur := audioSE.entries[0].D
+
+		t.Logf("Concat later time - First segment: time=%d, duration=%d, editListOffset=%d",
+			firstSegTime, firstSegDur, audioRep.EditListOffset)
+
+		require.Greater(t, firstSegTime, uint64(0), "First segment time should be positive after shift")
+		require.Greater(t, firstSegDur, uint64(90000), "Duration should be normal (not shortened) at later time")
+	})
 }
