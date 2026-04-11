@@ -122,17 +122,15 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 		return fmt.Errorf("number of periods is %d, not 1", len(mpd.Periods))
 	}
 
-	if *mpd.Type != "static" {
-		return fmt.Errorf("mpd type is not static")
-	}
-
 	if len(mpd.ProgramInformation) > 0 {
 		pi := mpd.ProgramInformation[0]
 		if pi.Title != "" {
 			md.Title = pi.Title
 		}
 	}
-	md.Dur = mpd.MediaPresentationDuration.String()
+	if mpd.MediaPresentationDuration != nil {
+		md.Dur = mpd.MediaPresentationDuration.String()
+	}
 	asset.MPDs[mpdName] = md
 
 	fillContentTypes(assetPath, mpd.Periods[0])
