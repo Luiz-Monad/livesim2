@@ -17,11 +17,14 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Dash-Industry-Forum/livesim2/internal"
+	"github.com/Dash-Industry-Forum/livesim2/pkg/util"
 	mx "github.com/Dash-Industry-Forum/livesim2/pkg/mpd"
 	m "github.com/Eyevinn/dash-mpd/mpd"
 	"github.com/Eyevinn/mp4ff/bits"
@@ -86,6 +89,7 @@ type assetMgr struct {
 	writeRepData        bool
 	writeMissingRepData bool
 	concatAssets        bool
+	mu                  sync.Mutex
 }
 
 // findAsset finds the asset by matching the uri with all assets paths.
@@ -100,6 +104,8 @@ func (am *assetMgr) findAsset(uri string) (*asset, bool) {
 
 // addAsset adds or retrieves an asset.
 func (am *assetMgr) addAsset(assetPath string) *asset {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 	if ast, ok := am.assets[assetPath]; ok {
 		return ast
 	}
@@ -108,20 +114,23 @@ func (am *assetMgr) addAsset(assetPath string) *asset {
 	return ast
 }
 
+type taskKind int
+
+const (
+	recurseTask taskKind = iota
+	loadTask
+)
+
 // discoverAssets walks the file tree and finds all directories containing MPD files.
 func (am *assetMgr) discoverAssets(logger *slog.Logger) error {
-	err := fs.WalkDir(am.vodFS, ".", func(p string, d fs.DirEntry, err error) error {
-		if path.Ext(p) == ".mpd" {
-			err := am.loadAsset(logger, p)
-			if err != nil {
-				logger.Warn("Asset loading problem. Skipping", "asset", p, "err", err.Error())
-			}
-		}
-		return nil
+	tp := util.NewTaskPool[taskKind](runtime.NumCPU(), 8, 0)
+	tp.Start()
+
+	tp.AddTask(func() (taskKind, error) {
+		return recurseTask, am.discoverAssetsRecurse(logger, ".", tp)
 	})
-	if err != nil {
-		return fmt.Errorf("searching MPDs: %w", err)
-	}
+	tp.Join()
+
 	if len(am.assets) == 0 {
 		return fmt.Errorf("no compatible assets found")
 	}
@@ -135,6 +144,34 @@ func (am *assetMgr) discoverAssets(logger *slog.Logger) error {
 			continue
 		}
 		logger.Info("Asset consolidated", "loopDurMS", a.LoopDurMS)
+	}
+	return nil
+}
+
+func (am *assetMgr) discoverAssetsRecurse(logger *slog.Logger, dir string, tp *util.TaskPool[taskKind]) error {
+	err := fs.WalkDir(am.vodFS, dir, func(p string, d fs.DirEntry, err error) error {
+		// Follow symlink directories
+		if d != nil && d.Type()&os.ModeSymlink != 0 {
+			tp.AddTask(func() (taskKind, error) {
+				return recurseTask, am.discoverAssetsRecurse(logger, p, tp)
+			})
+			return nil
+		}
+		if path.Ext(p) == ".mpd" {
+			tp.AddTask(func() (taskKind, error) {
+				if err := am.loadAsset(logger, p); err != nil {
+					logger.Warn("Asset loading problem. Skipping",
+						"asset", p,
+						"err", err.Error(),
+					)
+				}
+				return loadTask, err
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("searching MPDs: %w", err)
 	}
 	return nil
 }
@@ -158,6 +195,9 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 }
 
 func (am *assetMgr) loadMpd(logger *slog.Logger, assetPath, mpdName string, asset *asset) error {
+	asset.mu.Lock()
+	defer asset.mu.Unlock()
+
 	mpdFile := path.Join(assetPath, mpdName)
 
 	shouldTryLoadJSON := !am.writeRepData
@@ -531,6 +571,7 @@ type asset struct {
 	LoopDurMS    int                         `json:"loopDurationMS"`
 	Reps         map[string]*RepData         `json:"representations"`
 	refRep       *RepData                    `json:"-"` // First video or audio representation
+	mu           sync.Mutex                  `json:"-"`
 }
 
 func newAsset(assetPath string) *asset {
