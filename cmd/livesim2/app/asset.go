@@ -167,7 +167,7 @@ func (am *assetMgr) loadAsset(logger *slog.Logger, mpdPath string) error {
 			}
 		}
 	}
-	logger.Info("Asset MPD loaded")
+	logger.Debug("Asset MPD loaded")
 	return nil
 }
 
@@ -334,7 +334,7 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, as
 		if err != nil {
 			return true, err
 		}
-		logger.Info("Read gzipped repdata", "path", gzipPath)
+		logger.Debug("Read gzipped repData", "path", gzipPath)
 	}
 	if len(data) == 0 {
 		_, err := os.Stat(repDataPath)
@@ -343,7 +343,7 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, as
 			if err != nil {
 				return true, err
 			}
-			logger.Info("Read repdata", "path", repDataPath)
+			logger.Debug("Read repData", "path", repDataPath)
 		}
 	}
 	if len(data) == 0 {
@@ -411,7 +411,7 @@ func (rp *RepData) writeToJSON(logger *slog.Logger, repDataDir, assetPath string
 	if err != nil {
 		return err
 	}
-	logger.Info("Wrote repData", "path", gzipPath)
+	logger.Debug("Wrote repData", "path", gzipPath)
 	return nil
 }
 
@@ -1016,12 +1016,12 @@ func checkPreEncrypted(logger *slog.Logger, rawInit []byte) (bool, error) {
 		switch box := c.(type) {
 		case *mp4.VisualSampleEntryBox:
 			if box.Type() == "encv" && box.Sinf != nil && box.Sinf.Schm != nil {
-				logger.Info("Video pre-encrypted", "scheme", box.Sinf.Schm.SchemeType)
+				logger.Debug("Video pre-encrypted", "scheme", box.Sinf.Schm.SchemeType)
 				return true, nil
 			}
 		case *mp4.AudioSampleEntryBox:
 			if box.Type() == "enca" && box.Sinf != nil && box.Sinf.Schm != nil {
-				logger.Info("Audio pre-encrypted", "scheme", box.Sinf.Schm.SchemeType)
+				logger.Debug("Audio pre-encrypted", "scheme", box.Sinf.Schm.SchemeType)
 				return true, nil
 			}
 		}
@@ -1072,7 +1072,7 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 		if error != nil {
 			return fmt.Errorf("genEncInit: %w", error)
 		}
-		logger.Info("Generated init segment for encryption", "scheme", scheme)
+		logger.Debug("Generated init segment for encryption", "scheme", scheme)
 		rawEncInit, err := getInitBytes(initSeg)
 		if err != nil {
 			return fmt.Errorf("getInitBytes: %w", err)
