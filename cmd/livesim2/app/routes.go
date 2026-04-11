@@ -16,11 +16,15 @@ import (
 )
 
 // redirect returns an HTTP redirect with "from" replaced by "to" in URL.
+// X-Forwarded-Prefix is prepended to the redirect target for reverse-proxy subdirectory deployments.
 func redirect(from, to string) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = strings.Replace(r.URL.Path, from, to, 1)
-		http.Redirect(w, r, r.URL.String(), http.StatusFound)
-	}
+    return func(w http.ResponseWriter, r *http.Request) {
+        r.URL.Path = strings.Replace(r.URL.Path, from, to, 1)
+        if prefix := r.Header.Get("X-Forwarded-Prefix"); prefix != "" {
+            r.URL.Path = "/" + strings.Trim(prefix, "/") + "/" + strings.TrimLeft(r.URL.Path, "/")
+        }
+        http.Redirect(w, r, r.URL.String(), http.StatusFound)
+    }
 }
 
 // createReversePlayerProxy returns a handler that proxies request to an external player.

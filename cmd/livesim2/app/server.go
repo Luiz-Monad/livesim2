@@ -35,6 +35,16 @@ func (s *Server) healthzHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	s.jsonResponse(w, true, http.StatusOK)
 }
 
+func stripPrefixMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if prefix := r.Header.Get("X-Forwarded-Prefix"); prefix != "" {
+			http.StripPrefix(prefix, next).ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // jsonResponse marshals message and give response with code
 //
 // Don't add any more content after this since Content-Length is set

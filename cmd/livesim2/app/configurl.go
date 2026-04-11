@@ -507,7 +507,8 @@ func (c *ResponseConfig) URLContentPart() string {
 	return strings.Join(c.URLParts[c.URLContentIdx:], "/")
 }
 
-// fullHost uses non-empty cfgHost or extracts from requests scheme://host from request.
+// fullHost uses non-empty cfgHost or extracts scheme://host from request,
+// appending X-Forwarded-Prefix if present (for reverse-proxy subdirectory deployments).
 func fullHost(cfgHost string, r *http.Request) string {
 	if cfgHost != "" {
 		return cfgHost
@@ -516,7 +517,18 @@ func fullHost(cfgHost string, r *http.Request) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://%s", scheme, r.Host)
+	if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
+		scheme = fwdProto
+	}
+	host := r.Host
+	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		host = fwdHost
+	}
+	base := fmt.Sprintf("%s://%s", scheme, host)
+	if prefix := r.Header.Get("X-Forwarded-Prefix"); prefix != "" {
+		return base + "/" + strings.Trim(prefix, "/")
+	}
+	return base
 }
 
 // SetHost sets scheme://host to non-trivial cfgValue or tries to detect from request.
