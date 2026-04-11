@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"testing"
 
+	mx "github.com/Dash-Industry-Forum/livesim2/pkg/mpd"
 	m "github.com/Eyevinn/dash-mpd/mpd"
 	"github.com/stretchr/testify/require"
 )
@@ -370,8 +371,8 @@ func setSegmentEndNr(assetDir string, endNumber uint32) error {
 			}
 			p := mpd.Periods[0]
 			for _, a := range p.AdaptationSets {
-				stl := a.SegmentTemplate
-				stl.EndNumber = &endNumber
+				st := mx.SegmentTemplate(a)
+				st.EndNumber = &endNumber
 			}
 			mpdRaw, err := mpd.WriteToString("", false)
 			if err != nil {
