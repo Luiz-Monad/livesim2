@@ -106,6 +106,12 @@ func newChannel(ctx context.Context, chCfg ChannelConfig, chDir string) *channel
 }
 
 func (ch *channel) run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("Channel error", "chName", ch.name, r)
+		}
+	}()
+
 	defer close(ch.done)
 	for {
 		select {
