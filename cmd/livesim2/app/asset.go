@@ -6,6 +6,7 @@ package app
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -80,8 +81,8 @@ const (
 )
 
 // discoverAssets walks the file tree and finds all directories containing MPD files.
-func (am *assetMgr) discoverAssets(logger *slog.Logger) error {
-	tp := util.NewTaskPool[taskKind](runtime.NumCPU(), 8, 0)
+func (am *assetMgr) discoverAssets(ctx context.Context, logger *slog.Logger) error {
+	tp := util.NewTaskPoolCtx[taskKind](ctx, runtime.NumCPU(), 8, 0)
 	tp.Start()
 
 	tp.AddTask(func() (taskKind, error) {

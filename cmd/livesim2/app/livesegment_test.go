@@ -29,7 +29,7 @@ func TestLiveSegment(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	log := slog.Default()
 
@@ -118,7 +118,7 @@ func TestAc3Timing(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("bbb_hevc_ac3_8s")
@@ -141,7 +141,7 @@ func TestCheckAudioSegmentTimeAddressing(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -197,7 +197,7 @@ func TestLiveThumbSegment(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -250,7 +250,7 @@ func TestWriteChunkedSegment(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 	cfg := NewResponseConfig()
 	cfg.AvailabilityTimeCompleteFlag = false
@@ -396,7 +396,7 @@ func TestStartNumber(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 	err = logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestLLSegmentAvailability(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	log := slog.Default()
-	err := am.discoverAssets(log)
+	err := am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 	err = logging.InitSlog("error", "discard")
 	require.NoError(t, err)
@@ -621,7 +621,7 @@ func TestSegmentStatusCodeResponse(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -736,7 +736,7 @@ func TestMpeghAssets(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -904,7 +904,7 @@ func TestMehdBoxRemovedFromInitSegment(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	asset, ok := am.findAsset("testpic_8s")
 	require.True(t, ok)
@@ -926,7 +926,7 @@ func TestWriteSubSegment(t *testing.T) {
 	err := logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
 	log := slog.Default()
-	err = am.discoverAssets(log)
+	err = am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -1047,7 +1047,7 @@ func TestWriteSubSegmentWithChunkDuration(t *testing.T) {
 	err := logging.InitSlog("debug", "discard")
 	require.NoError(t, err)
 	log := slog.Default()
-	err = am.discoverAssets(log)
+	err = am.discoverAssets(context.Background(), log)
 	require.NoError(t, err)
 
 	cases := []struct {

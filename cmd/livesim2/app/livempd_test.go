@@ -5,6 +5,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,7 +28,7 @@ func TestLiveMPDStart(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -128,7 +129,7 @@ func TestLiveMPDWithTimeSubs(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -187,7 +188,7 @@ func TestSegmentTimes(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -256,7 +257,7 @@ func TestLastAvailableSegment(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, true, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	cases := []struct {
 		desc                     string
@@ -375,7 +376,7 @@ func TestPublishTime(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -555,7 +556,7 @@ func TestNormalAvailabilityTimeOffset(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -637,7 +638,7 @@ func TestUTCTiming(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -718,7 +719,7 @@ func TestAudioSegmentTimeFollowsVideo(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -798,7 +799,7 @@ func TestMultiPeriod(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -911,7 +912,7 @@ func TestRelStartStopTimeIntoLocation(t *testing.T) {
 	vodFS := os.DirFS("testdata/assets")
 	am := newAssetMgr(vodFS, "", false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -948,7 +949,7 @@ func TestFractionalFramerateMPDs(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -1027,7 +1028,7 @@ func TestEndNumberRemovedFromMPD(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 	assetName := "testpic_2s"
 	asset, ok := am.findAsset(assetName)
@@ -1053,7 +1054,7 @@ func TestGenerateTimelineEntries(t *testing.T) {
 
 	logger := slog.Default()
 
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -1553,7 +1554,7 @@ func TestEditListOffsetMPD(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("WAVE/av")
@@ -1666,7 +1667,7 @@ func TestEditListOffsetAvailabilityTime(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("WAVE/av")
@@ -1775,7 +1776,7 @@ func TestPatternConsistency(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -1951,7 +1952,7 @@ func TestVideoAudioSegmentCountMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -2010,7 +2011,7 @@ func TestPatternStabilityWithTimeShift(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
@@ -2127,7 +2128,7 @@ func TestURLToMPDWithPattern(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -2742,7 +2743,7 @@ func TestPECalculationWithSpecificNowMS(t *testing.T) {
 	tmpDir := t.TempDir()
 	am := newAssetMgr(vodFS, tmpDir, false, false)
 	logger := slog.Default()
-	err := am.discoverAssets(logger)
+	err := am.discoverAssets(context.Background(), logger)
 	require.NoError(t, err)
 
 	asset, ok := am.findAsset("testpic_2s")
