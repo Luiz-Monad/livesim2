@@ -223,7 +223,8 @@ func Run(opts *Options) error {
 
 func setupRouter(r *Receiver, storage, fileServerPath string) *chi.Mux {
 	router := chi.NewRouter()
-	router.Use(middleware.Logger)
+	logger := slog.Default()
+	router.Use(logging.SlogMiddleWare(logger))
 	router.Use(middleware.Recoverer)
 	router.Use(addCorsHeaders)
 	router.Put(fmt.Sprintf("%s/*", r.prefix), r.SegmentHandlerFunc)
