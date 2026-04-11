@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/Dash-Industry-Forum/livesim2/pkg/drm"
-	"github.com/Dash-Industry-Forum/livesim2/pkg/scte35"
 	mx "github.com/Dash-Industry-Forum/livesim2/pkg/mpd"
+	"github.com/Dash-Industry-Forum/livesim2/pkg/scte35"
 	m "github.com/Eyevinn/dash-mpd/mpd"
 )
 

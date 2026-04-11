@@ -26,23 +26,28 @@ import (
 	m "github.com/Eyevinn/dash-mpd/mpd"
 	"github.com/Eyevinn/mp4ff/bits"
 	"github.com/Eyevinn/mp4ff/mp4"
+	"github.com/wwmoraes/go-rwfs"
 )
 
 type assetMgrBld struct {
 	am assetMgr
 }
 
-func newAssetMgrBld(vodFS fs.FS) *assetMgrBld {
+func newAssetMgrBld() *assetMgrBld {
 	return &assetMgrBld{
 		am: assetMgr{
-			vodFS:  vodFS,
 			assets: make(map[string]*asset),
 		},
 	}
 }
 
-func (b *assetMgrBld) repDir(repDataDir string) *assetMgrBld {
-	b.am.repDataDir = repDataDir
+func (b *assetMgrBld) vodFs(vodFS fs.FS) *assetMgrBld {
+	b.am.vodFS = vodFS
+	return b
+}
+
+func (b *assetMgrBld) repFs(repFS rwfs.FS) *assetMgrBld {
+	b.am.repFS = repFS
 	return b
 }
 
@@ -65,10 +70,19 @@ func (b *assetMgrBld) build() *assetMgr {
 	return &b.am
 }
 
+func (b *assetMgrBld) from(am *assetMgr) *assetMgrBld {
+	return newAssetMgrBld().
+		vodFs(am.vodFS).
+		repFs(am.repFS).
+		writeRep(am.writeRepData).
+		missingRep(am.writeMissingRepData).
+		concatAssets(am.concatAssets)
+}
+
 type assetMgr struct {
 	vodFS               fs.FS
+	repFS               rwfs.FS
 	assets              map[string]*asset // the key is the asset path
-	repDataDir          string
 	writeRepData        bool
 	writeMissingRepData bool
 	concatAssets        bool
@@ -227,7 +241,7 @@ func (am *assetMgr) loadMpd(logger *slog.Logger, mpdPath, mpdName string, asset 
 	return nil
 }
 
-func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.AdaptationSetType, rep *m.RepresentationType) (*RepData, error) {
+func (am *assetMgr) loadRep(logger *slog.Logger, assetPath, mpdName string, as *m.AdaptationSetType, rep *m.RepresentationType) (*RepData, error) {
 	logger = logger.With("rep", rep.Id)
 	rp := RepData{
 		Version:      0, // Default version for RepData format
@@ -240,7 +254,7 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.
 	shouldTryLoadJSON := !am.writeRepData
 	jsonLoaded := false
 	if shouldTryLoadJSON {
-		ok, err := rp.loadFromJSON(logger, am.vodFS, am.repDataDir, mpdPath)
+		ok, err := rp.loadFromJSON(logger, am.repFS, assetPath)
 		if ok {
 			logger.Debug("Loaded representation data from JSON")
 			return &rp, err
@@ -259,9 +273,13 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.
 	if st.Timescale != nil {
 		rp.MpdTimescale = int(*st.Timescale)
 	}
-	err := rp.addRegExpAndInit(logger, am.vodFS, mpdPath)
+	err := rp.addRegExp()
 	if err != nil {
-		return nil, fmt.Errorf("addRegExpAndInit: %w", err)
+		return nil, fmt.Errorf("addRegExp: %w", err)
+	}
+	err = rp.addInit(logger, am.vodFS, assetPath)
+	if err != nil {
+		return nil, fmt.Errorf("addInit: %w", err)
 	}
 	switch {
 	case st.SegmentTimeline != nil && rp.typeURI() == timeURI:
@@ -272,21 +290,21 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.
 				t = *s.T
 			}
 			d := s.D
-			seg, err := rp.readMP4Segment(am.vodFS, mpdPath, t, 0)
+			seg, err := rp.readMP4Segment(am.vodFS, assetPath, t, 0)
 			if err != nil {
 				return nil, fmt.Errorf("readMP4Segment: %w", err)
 			}
 			rp.Segments = append(rp.Segments, seg)
-			rp.setSegmentBasePath(seg.StartTime, mpdPath)
+			rp.setSegmentBasePath(seg.StartTime, assetPath)
 			t += d
 			for i := 0; i < s.R; i++ {
 				nr++
-				seg, err := rp.readMP4Segment(am.vodFS, mpdPath, t, 0)
+				seg, err := rp.readMP4Segment(am.vodFS, assetPath, t, 0)
 				if err != nil {
 					return nil, fmt.Errorf("readMP4Segment: %w", err)
 				}
 				rp.Segments = append(rp.Segments, seg)
-				rp.setSegmentBasePath(seg.StartTime, mpdPath)
+				rp.setSegmentBasePath(seg.StartTime, assetPath)
 				t += d
 			}
 		}
@@ -311,9 +329,9 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.
 		for {
 			// Loop until we cannot find more files
 			if rp.ContentType != "image" {
-				seg, err = rp.readMP4Segment(am.vodFS, mpdPath, 0, nr)
+				seg, err = rp.readMP4Segment(am.vodFS, assetPath, 0, nr)
 			} else {
-				seg, err = rp.readThumbSegment(am.vodFS, mpdPath, nr, startNr, segDur)
+				seg, err = rp.readThumbSegment(am.vodFS, assetPath, nr, startNr, segDur)
 			}
 			if err != nil {
 				if !errors.Is(err, fs.ErrNotExist) {
@@ -326,14 +344,14 @@ func (am *assetMgr) loadRep(logger *slog.Logger, mpdPath, mpdName string, as *m.
 				rp.Segments[len(rp.Segments)-1].EndTime = seg.StartTime
 			}
 			rp.Segments = append(rp.Segments, seg)
-			rp.setSegmentBasePath(seg.StartTime, mpdPath)
+			rp.setSegmentBasePath(seg.StartTime, assetPath)
 			if nr == endNr { // This only happens if endNumber is set
 				break
 			}
 			nr++
 		}
 		if endNr < startNr {
-			return nil, fmt.Errorf("no segments read for rep %s", path.Join(mpdPath, rp.MediaURI))
+			return nil, fmt.Errorf("no segments read for rep %s", path.Join(assetPath, rp.MediaURI))
 		}
 	default:
 		return nil, fmt.Errorf("unknown type of representation")
@@ -361,24 +379,20 @@ segLoop:
 	if !shouldWriteJSON {
 		return &rp, nil
 	}
-	err = rp.writeToJSON(logger, am.repDataDir, mpdPath)
+	err = rp.writeToJSON(logger, am.repFS, assetPath)
 	return &rp, err
 }
 
 // loadFromJSON reads the representation data from a gzipped or plain JSON file.
-func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, mpdPath string) (bool, error) {
-	if repDataDir == "" {
+func (rp *RepData) loadFromJSON(logger *slog.Logger, repFS fs.FS, assetPath string) (bool, error) {
+	if repFS == nil {
 		return false, nil
 	}
-	repDataPath := path.Join(repDataDir, mpdPath, rp.repDataName())
+	repDataPath := path.Join(assetPath, rp.repDataName())
 	gzipPath := repDataPath + ".gz"
 	var data []byte
-	_, err := os.Stat(gzipPath)
+	fh, err := repFS.Open(gzipPath)
 	if err == nil {
-		fh, err := os.Open(gzipPath)
-		if err != nil {
-			return true, err
-		}
 		defer fh.Close()
 		gzr, err := gzip.NewReader(fh)
 		if err != nil {
@@ -392,9 +406,9 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, mp
 		logger.Info("Read gzipped repdata", "path", gzipPath)
 	}
 	if len(data) == 0 {
-		_, err := os.Stat(repDataPath)
+		fh, err = repFS.Open(repDataPath)
 		if err == nil {
-			data, err = os.ReadFile(repDataPath)
+			data, err = io.ReadAll(fh)
 			if err != nil {
 				return true, err
 			}
@@ -404,17 +418,30 @@ func (rp *RepData) loadFromJSON(logger *slog.Logger, vodFS fs.FS, repDataDir, mp
 	if len(data) == 0 {
 		return false, nil
 	}
-	if err := json.Unmarshal(data, &rp); err != nil {
+	if err := json.Unmarshal(data, rp); err != nil {
 		return true, err
 	}
-	err = rp.addRegExpAndInit(logger, vodFS, mpdPath)
+	err = rp.addRegExp()
 	if err != nil {
-		return true, fmt.Errorf("addRegExpAndInit: %w", err)
+		return true, fmt.Errorf("addRegExp: %w", err)
+	}
+	if len(rp.InitBytes) > 0 {
+		rp.initSeg, err = getInitSeg(rp.InitBytes)
+		if err != nil {
+			return true, fmt.Errorf("getInitSeg: %w", err)
+		}
+	}
+	if prepareForEncryption(rp.Codecs) {
+		assetName := path.Base(assetPath)
+		err = rp.addEncryption(logger, assetName)
+		if err != nil {
+			return false, fmt.Errorf("addEncryption: %w", err)
+		}
 	}
 	return true, nil
 }
 
-func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, mpdPath string) error {
+func (rp *RepData) addRegExp() error {
 	switch {
 	case strings.Contains(rp.MediaURI, "$Number$"):
 		rexStr := strings.ReplaceAll(rp.MediaURI, "$Number$", `(\d+)`)
@@ -427,9 +454,12 @@ func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, mpdPath st
 	default:
 		return fmt.Errorf("neither $Number$, nor $Time$ found in media")
 	}
+	return nil
+}
 
+func (rp *RepData) addInit(logger *slog.Logger, vodFS fs.FS, assetPath string) error {
 	if rp.ContentType != "image" {
-		err := rp.readInit(logger, vodFS, mpdPath)
+		err := rp.readInit(logger, vodFS, assetPath)
 		if err != nil {
 			return err
 		}
@@ -438,24 +468,15 @@ func (rp *RepData) addRegExpAndInit(logger *slog.Logger, vodFS fs.FS, mpdPath st
 }
 
 // writeToJSON writes the representation data to a gzipped JSON file.
-func (rp *RepData) writeToJSON(logger *slog.Logger, repDataDir, assetPath string) error {
+func (rp *RepData) writeToJSON(logger *slog.Logger, repFS rwfs.FS, assetPath string) error {
 	logger = logger.With("rep", rp.ID, "assetPath", assetPath)
-	if repDataDir == "" {
-		return nil
-	}
 	data, err := json.Marshal(rp)
 	if err != nil {
 		return err
 	}
-	outDir := path.Join(repDataDir, assetPath)
-	if dirDoesNotExist(outDir) {
-		err := os.MkdirAll(outDir, 0755)
-		if err != nil {
-			return fmt.Errorf("mkdir %s: %w", outDir, err)
-		}
-	}
-	gzipPath := path.Join(outDir, rp.repDataName()+".gz")
-	fh, err := os.Create(gzipPath)
+	repFS.MkdirAll(assetPath, 0755)
+	gzipPath := path.Join(assetPath, rp.repDataName()+".gz")
+	fh, err := repFS.OpenFile(gzipPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
@@ -472,11 +493,6 @@ func (rp *RepData) writeToJSON(logger *slog.Logger, repDataDir, assetPath string
 
 func (rp *RepData) repDataName() string {
 	return fmt.Sprintf("%s_data.json", rp.ID)
-}
-
-func dirDoesNotExist(dir string) bool {
-	_, err := os.Stat(dir)
-	return os.IsNotExist(err)
 }
 
 // An asset is a directory with at least one MPD file
@@ -933,9 +949,9 @@ type RepData struct {
 	EditListOffset         int64            `json:"editListOffset,omitempty"`
 	PreEncrypted           bool             `json:"preEncrypted"`
 	ChunkDurSSRS           *float64         `json:"chunkDurSSRS,omitempty"` // Low delay chunk duration in seconds
+	InitBytes              []byte           `json:"initBytes,omitempty"`
 	mediaRegexp            *regexp.Regexp   `json:"-"`
 	initSeg                *mp4.InitSegment `json:"-"`
-	initBytes              []byte           `json:"-"`
 	encData                *repEncData      `json:"-"`
 }
 
@@ -945,17 +961,17 @@ type SegmentPath struct {
 }
 
 type repEncData struct {
-	keyID   id16   // Should be common within one AdaptationSet, but for now common for one asset
-	key     id16   // Should be common within one AdaptationSet, but for now common for one asset
-	iv      []byte // Can be random, but we use a constant default value at start
-	initEnc map[string]initEncData
+	KeyID   id16                   `json:"keyID"` // Should be common within one AdaptationSet, but for now common for one asset
+	Key     id16                   `json:"key"`   // Should be common within one AdaptationSet, but for now common for one asset
+	Iv      []byte                 `json:"iv"`    // Can be random, but we use a constant default value at start
+	InitEnc map[string]initEncData `json:"initEnc"`
 }
 
 type initEncData struct {
-	scheme  string
-	pd      *mp4.InitProtectData
-	init    *mp4.InitSegment
-	initRaw []byte
+	Scheme  string               `json:"scheme"`
+	pd      *mp4.InitProtectData `json:"-"`
+	init    *mp4.InitSegment     `json:"-"`
+	InitRaw []byte               `json:"initRaw"`
 }
 
 var defaultIV = []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
@@ -1064,7 +1080,7 @@ func (r *RepData) readInit(logger *slog.Logger, vodFS fs.FS, mpdPath string) err
 		return fmt.Errorf("getElstOffset: %w", err)
 	}
 	r.EditListOffset = editListOffset
-	r.initBytes, err = getInitBytes(r.initSeg)
+	r.InitBytes, err = getInitBytes(r.initSeg)
 	if err != nil {
 		return fmt.Errorf("getInitBytes: %w", err)
 	}
@@ -1133,13 +1149,13 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 	// Set up the encryption data for this representation given asset
 	kid := kidFromString(assetName)
 	red := repEncData{
-		keyID:   kid,
-		key:     kidToKey(kid),
-		iv:      defaultIV,
-		initEnc: make(map[string]initEncData, 2),
+		KeyID:   kid,
+		Key:     kidToKey(kid),
+		Iv:      defaultIV,
+		InitEnc: make(map[string]initEncData, 2),
 	}
 
-	preEncrypted, err := checkPreEncrypted(logger, r.initBytes)
+	preEncrypted, err := checkPreEncrypted(logger, r.InitBytes)
 	if err != nil {
 		return fmt.Errorf("checkPreEncrypted: %w", err)
 	}
@@ -1148,9 +1164,9 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 		return nil
 	}
 
-	rawInit := r.initBytes
+	rawInit := r.InitBytes
 	for _, scheme := range []string{"cbcs", "cenc"} {
-		initProtect, initSeg, error := genEncInit(rawInit, red.keyID, red.iv, scheme)
+		initProtect, initSeg, error := genEncInit(rawInit, red.KeyID, red.Iv, scheme)
 		if error != nil {
 			return fmt.Errorf("genEncInit: %w", error)
 		}
@@ -1160,12 +1176,12 @@ func (r *RepData) addEncryption(logger *slog.Logger, assetName string) error {
 			return fmt.Errorf("getInitBytes: %w", err)
 		}
 		rd := initEncData{
-			scheme:  scheme,
+			Scheme:  scheme,
 			pd:      initProtect,
 			init:    initSeg,
-			initRaw: rawEncInit,
+			InitRaw: rawEncInit,
 		}
-		red.initEnc[scheme] = rd
+		red.InitEnc[scheme] = rd
 	}
 	r.encData = &red
 	return nil

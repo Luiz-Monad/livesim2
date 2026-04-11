@@ -202,8 +202,10 @@ func TestAddTwoAudioTracks(t *testing.T) {
 	assert.Equal(t, 1, len(asSet0.Representations), "audio tracks should have only one Representation")
 	asSet1 := p.AdaptationSets[1]
 	assert.Equal(t, 1, len(asSet1.Representations), "audio tracks should have only one Representation")
-	assert.NotNil(t, asSet0.SegmentTemplate)
-	assert.NotNil(t, asSet0.SegmentTemplate.Timescale, "Timescale should not be nil for track")
-	assert.NotNil(t, asSet1.SegmentTemplate)
-	assert.NotNil(t, asSet1.SegmentTemplate.Timescale, "Timescale should not be nil for track")
+	st0 := mx.SegmentTemplate(asSet0)
+	assert.NotNil(t, st0)
+	assert.NotNil(t, st0.Timescale, "Timescale should not be nil for track")
+	st1 := mx.SegmentTemplate(asSet0)
+	assert.NotNil(t, st1)
+	assert.NotNil(t, st1.Timescale, "Timescale should not be nil for track")
 }

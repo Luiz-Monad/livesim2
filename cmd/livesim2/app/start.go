@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/wwmoraes/go-rwfs"
 
 	"github.com/Dash-Industry-Forum/livesim2/internal"
 	"github.com/Dash-Industry-Forum/livesim2/pkg/drm"
@@ -63,13 +64,15 @@ func SetupServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 	r.Mount("/vod", v)
 
 	vodFS := os.DirFS(cfg.VodRoot)
+	repFS := rwfs.OSDirFS(cfg.RepDataRoot)
 	server := Server{
 		Router:     r,
 		LiveRouter: l,
 		VodRouter:  v,
 		Cfg:        cfg,
-		assetMgr: newAssetMgrBld(vodFS).
-			repDir(cfg.RepDataRoot).
+		assetMgr: newAssetMgrBld().
+			vodFs(vodFS).
+			repFs(repFS).
 			writeRep(cfg.WriteRepData).
 			missingRep(cfg.WriteMissingRepData).
 			concatAssets(cfg.ConcatAssets).

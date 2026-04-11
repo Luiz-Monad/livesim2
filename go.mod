@@ -16,6 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.21.1
 	github.com/spf13/pflag v1.0.6
 	github.com/stretchr/testify v1.10.0
+	github.com/wwmoraes/go-rwfs v0.0.0-20231101192853-2f37ed32d908
 )
 
 require (
@@ -55,3 +56,5 @@ require (
 )
 
 replace github.com/Eyevinn/mp4ff v0.50.0 => github.com/Luiz-Monad/mp4ff v0.50.0-patch
+
+replace github.com/wwmoraes/go-rwfs v0.0.0-20231101192853-2f37ed32d908 => github.com/Luiz-Monad/go-rwfs v0.0.1
