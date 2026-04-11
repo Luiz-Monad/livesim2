@@ -68,7 +68,7 @@ func (r *Receiver) SegmentHandlerFunc(w http.ResponseWriter, req *http.Request) 
 	ch, ok := r.channelMgr.GetChannel(stream.chName)
 	if !ok {
 		r.channelMgr.AddChannel(r.ctx, stream.chName, stream.chDir)
-		slog.Debug("Created new  channel", "name", stream.chName, "dir", stream.chDir)
+		slog.Debug("Created new channel", "name", stream.chName, "dir", stream.chDir)
 		ch, _ = r.channelMgr.GetChannel(stream.chName)
 	}
 	if ch.ignore {
@@ -76,10 +76,7 @@ func (r *Receiver) SegmentHandlerFunc(w http.ResponseWriter, req *http.Request) 
 		discardUpload(w, req, http.StatusOK)
 		return
 	}
-	log := slog.Default().With(
-		"chName", stream.chName,
-		"trName", stream.trName,
-	)
+	log := ch.log.WithGroup("track").With("trName", stream.trName)
 	if ch.authUser != "" || ch.authPswd != "" {
 		user, pswd, ok := req.BasicAuth()
 		if !ok || user != ch.authUser || pswd != ch.authPswd {
@@ -173,7 +170,7 @@ func (r *Receiver) SegmentHandlerFunc(w http.ResponseWriter, req *http.Request) 
 			if err != nil {
 				return fmt.Errorf("failed to decode chunk %d: %w", rsd.chunkNr, err)
 			}
-			log.Debug("Media chunk received", "chunkNr", rsd.chunkNr, "chName", stream.chName, "trName", trName)
+			log.Debug("Media chunk received", "chunkNr", rsd.chunkNr)
 
 			if len(chunk.Segments) == 0 || len(chunk.Segments[0].Fragments) == 0 {
 				return fmt.Errorf("no segments or fragments in chunk")
