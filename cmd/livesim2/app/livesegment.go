@@ -632,6 +632,7 @@ func createAudioSegment(vodFS fs.FS, a *asset, cfg *ResponseConfig, segmentPart 
 	}
 	so.meta = segMeta{
 		rep:       rep,
+		origTime:  recipe.audioInStart,
 		newTime:   recipe.startTime,
 		newDur:    uint32(recipe.endTime - recipe.startTime),
 		newNr:     recipe.segNr,
